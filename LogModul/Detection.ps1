@@ -8,13 +8,13 @@
 .CREATED
     2025-09-04
 .VERSION
-    1.6.0
+    2.1.0
 .NOTES
     Modul sa importuje len ak este nie je nacitany.
     Pridane robustnejsie kontroly a detailne ladice logy pre version.txt.
 #>
 
-$ExpectedVersion = "1.6.0"
+$ExpectedVersion = "2.1.0"
 $RegPath64 = "HKLM:\SOFTWARE\TaurisIT\LogHelper"
 $RegPath32 = "HKLM:\SOFTWARE\WOW6432Node\TaurisIT\LogHelper"
 

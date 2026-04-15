@@ -1,0 +1,16 @@
+services:
+  unifi-poller:
+    image: golift/unifi-poller:latest
+    container_name: unifi-poller
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      UP_UNIFI_DEFAULT_URL: "https://10.20.10.235:8443"
+      UP_UNIFI_DEFAULT_USER: "unifipoller"
+      UP_UNIFI_DEFAULT_PASS: "Karabin@-2026"
+      UP_UNIFI_DEFAULT_VERIFY_SSL: "false"
+      UP_INFLUXDB_DISABLE: "true"
+      UP_PROMETHEUS_DISABLE: "false"
+      UP_PROMETHEUS_HTTP_LISTEN: "0.0.0.0:9130"
+      UP_LOKI_DISABLE: "true"
+      UP_POLLER_DEBUG: "false"

@@ -1,6 +1,12 @@
+# Uninstall.ps1 - Odinštalačný skript pre Intune Win32 aplikáciu
+# Vymaže extensionAttribute1 zo zariadenia v Entra ID a odstráni lokálne logy.
+# Spúšťa sa v SYSTEM kontexte cez Intune.
+
 <#
 .SYNOPSIS
-    Remediation: Zapíše správnu lokáciu do extensionAttribute1 podľa aktuálnej IP
+    Intune Win32 app - Vymaže lokáciu z extensionAttribute1 v Entra ID.
+.NOTES
+    - Uninstall command: powershell.exe -ExecutionPolicy Bypass -File .\Uninstall.ps1
 #>
 
 function Import-DotEnv {
@@ -27,41 +33,14 @@ Import-Module LogHelper -ErrorAction SilentlyContinue
 
 $LogDir = "C:\TaurisIT\Log\IPcheck"
 $LogFile = "IPcheck.log"
-$EventSource = "IPLocationRemediation"
+$EventSource = "IPLocationUninstall"
 
 if (Test-Path "C:\Program Files\WindowsPowerShell\Modules\LogHelper") {
     $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
-    $null = Write-IntuneLog -Message "Remediation script spustený" -Level INFO -LogFile $LogFile
+    $null = Write-IntuneLog -Message "Uninstall script spustený" -Level INFO -LogFile $LogFile
 }
 
 try {
-    # Načítaj JSON mapu
-    $jsonPath = Join-Path $PSScriptRoot "IPLocationMap.json"
-    if (-not (Test-Path $jsonPath)) { throw "IPLocationMap.json nenájdený" }
-
-    $jsonContent = Get-Content $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $ipMap = @{}
-    $jsonContent.PSObject.Properties | ForEach-Object { $ipMap[$_.Name] = $_.Value }
-
-    # Získaj aktuálnu IP (10.x rozsah)
-    $ip = Get-NetIPAddress -AddressFamily IPv4 |
-        Where-Object { $_.IPAddress -match '^10\.' -and $_.AddressState -eq 'Preferred' } |
-        Select-Object -First 1 -ExpandProperty IPAddress
-
-    if (-not $ip) { throw "Žiadna interná 10.x IP nenájdená" }
-
-    # Najdlhší prefix match
-    $location = $null
-    $longest = ""
-    foreach ($prefix in $ipMap.Keys) {
-        if ($ip.StartsWith($prefix) -and $prefix.Length -gt $longest.Length) {
-            $longest = $prefix
-            $location = $ipMap[$prefix]
-        }
-    }
-
-    if (-not $location) { throw "Žiadna lokácia pre IP $ip" }
-
     # Načítaj credentials z .env
     Import-DotEnv
     $clientId     = $env:GRAPH_CLIENT_ID
@@ -78,47 +57,54 @@ try {
     }
     Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
 
+    # Autentifikácia k Microsoft Graph
     $authBody = @{
         grant_type    = "client_credentials"
         scope         = "https://graph.microsoft.com/.default"
         client_id     = $clientId
         client_secret = $clientSecret
     }
-
     $tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" `
         -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
-    $token = $tokenResponse.access_token
+    $accessToken = $tokenResponse.access_token
 
-    # Graph SDK v2 vyžaduje SecureString pre -AccessToken
-    $secureToken = ConvertTo-SecureString $token -AsPlainText -Force
+    $secureToken = ConvertTo-SecureString $accessToken -AsPlainText -Force
     $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
 
+    # Získanie device objektu
     $deviceName = $env:COMPUTERNAME
     $response = Invoke-MgGraphRequest -Method GET `
         -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id,displayName" `
         -ErrorAction Stop
     $device = $response.value | Select-Object -First 1
-    if (-not $device) { throw "Zariadenie $deviceName nenájdené v Entra ID" }
+    if (-not $device) {
+        throw "Zariadenie '$deviceName' sa nenašlo v Entra ID."
+    }
 
-    $patchBody = @{
+    # Vymazanie extensionAttribute1 (nastavenie na null)
+    $clearBody = @{
         extensionAttributes = @{
-            extensionAttribute1 = $location
+            extensionAttribute1 = $null
         }
     } | ConvertTo-Json -Depth 3
 
     Invoke-MgGraphRequest -Method PATCH `
         -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
-        -Body $patchBody -ContentType "application/json" -ErrorAction Stop
+        -Body $clearBody -ContentType "application/json" -ErrorAction Stop
 
-    Write-IntuneLog -Message "SUCCESS – extensionAttribute1 nastavené na $location (IP: $ip)" -Level SUCCESS -LogFile $LogFile
-    Write-Output "Opravené – nastavené $location"
+    $null = Write-IntuneLog -Message "extensionAttribute1 vymazaný pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile
+
+    # Odstránenie lokálneho log adresára
+    if (Test-Path $LogDir) {
+        Remove-Item -Path $LogDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     exit 0
-
 }
 catch {
-    Write-IntuneLog -Message "Remediation CHYBA: $($_.Exception.Message)" -Level ERROR -LogFile $LogFile
-    Send-IntuneAlert -Message "Nepodarilo sa nastaviť lokáciu: $($_.Exception.Message)" -Severity Error -EventSource $EventSource -LogFile $LogFile
-    Write-Output "Chyba pri zápise: $($_.Exception.Message)"
+    $errorMessage = $_.Exception.Message
+    $null = Write-IntuneLog -Message "Uninstall chyba: $errorMessage" -Level ERROR -LogFile $LogFile
+    Write-Output "Chyba: $errorMessage"
     exit 1
 }
 finally {

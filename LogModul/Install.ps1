@@ -9,7 +9,7 @@
 .CREATED
     2025-09-05
 .VERSION
-    1.6.0
+    2.1.0
 .NOTES
     Modul sa instaluje do C:\Program Files\WindowsPowerShell\Modules\LogHelper
     Logy sa ukladaju do C:\ProgramData\LogHelper\install_update_log.txt
@@ -19,7 +19,7 @@
 $ModuleName = "LogHelper"
 $ModulePath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper"
 $SourceModule = ".\LogHelper.psm1"   # zdrojový modul v priečinku skriptu
-$NewVersion = "1.6.0"
+$NewVersion = "2.1.0"
 
 # Registry
 $RegPath64 = "HKLM:\SOFTWARE\TaurisIT\LogHelper"

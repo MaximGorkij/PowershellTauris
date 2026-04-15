@@ -1,20 +1,47 @@
 <# 
 .SYNOPSIS
-    Klonovanie AD uctu s logovanim + TEST/WHATIF rezim.
+    Klonovanie AD uctu s logovanim + TEST/WHATIF rezim
 .DESCRIPTION
-    Vyhlada vzoroveho pouzivatela a vytvori noveho.
+    Vyhlada vzoroveho pouzivatela a vytvori presnu kopiu.
+    - Orezanie zdrojova OU osetrena cez regex.
+    - Pridany volitelny titul do DisplayName ("Priezvisko Meno, Titul").
     - EmployeeID: 5 alebo 7 miest (musi zacinat 0).
-    - Kontrola duplicity Meno+Priezvisko.
-    - Logika domeny: masiarstvoubyka.sk vs tauris.sk.
-    - Suhlas so suhrnom (Summary) pred vytvorenim.
+    - Email domena dynamicky podla vzoru.
+    - Automaticke prevzatie alebo zmena telefonneho cisla.
     - Doplnkova sluzba: Auto-Enable.
+    - Rezim behu sa zadava ako parameter pri spusteni skriptu.
 .NOTES
-    Verzia: 3.9 (EmployeeID 5 or 7 digits)
+    Verzia: 3.16 (Cleanup "True" outputs + Window Title)
+    Autor: Automaticky report
     Pozadovane moduly: ActiveDirectory, LogHelper, ScheduledTasks
+    Datum vytvorenia: 16.03.2026
+    Logovanie: C:\TaurisIT\Log\UserClone
 #>
 
+param (
+    [Parameter(Position = 0, Mandatory = $false)]
+    [ValidateSet("prod", "test")]
+    [string]$Mode = "prod"
+)
+
+# Nastavenie nazvu okna konzoly
+$Host.UI.RawUI.WindowTitle = "AD User Clone Tool v3.16"
+
 # ---------------------------------------------------------------------------
-# POMOCNE FUNKCIE
+# 1. OVERENIE ADMINISTRATORSKYCH PRAV
+# ---------------------------------------------------------------------------
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
+    Write-Host "CHYBA: Skript vyzaduje spustenie ako ADMINISTRATOR!" -ForegroundColor Red
+    Write-Host "Prosim, spustite skript cez ikonu (Spustit ako spravca)." -ForegroundColor Yellow
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
+    Pause
+    exit
+}
+
+# ---------------------------------------------------------------------------
+# 2. POMOCNE FUNKCIE
 # ---------------------------------------------------------------------------
 
 function Remove-Diacritics {
@@ -30,59 +57,64 @@ function Remove-Diacritics {
 }
 
 # ---------------------------------------------------------------------------
-# NASTAVENIA
+# 3. NASTAVENIA A INICIALIZACIA LOGOVANIA
 # ---------------------------------------------------------------------------
-$TestMode = $false   # $false = ostry beh, $true = test bez vytvorenia
+$TestMode = ($Mode -eq "test")
 $UseWhatIf = $TestMode
 
-$LogHelperPath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper"
+$LogHelperPath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper\LogHelper.psm1"
 $LogDir = "C:\TaurisIT\Log\UserClone"
 $EventSource = "ADUserCloneApp"
-
 $Timestamp = Get-Date -Format 'yyyyMMddHHmm'
 $LogFile = "$Timestamp-UserClone.log"
-
-# ---------------------------------------------------------------------------
-# INICIALIZACIA
-# ---------------------------------------------------------------------------
-
-if ($TestMode) {
-    Write-Host "`n=== TESTOVACI REZIM (WHATIF) ===" -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host "Ziadne zmeny v AD sa nevykonaju (Simulacia)!`n" -ForegroundColor Yellow
-}
 
 if (-not (Test-Path $LogDir)) {
     try { New-Item -Path $LogDir -ItemType Directory -Force | Out-Null } 
     catch { Write-Warning "Nepodarilo sa vytvorit adresar logov: $_" }
 }
 
-if (!(Get-Module -ListAvailable ActiveDirectory)) {
-    Write-Error "Modul ActiveDirectory chyba."
-    return
-}
-Import-Module ActiveDirectory
-
 $LogModuleLoaded = $false
 if (Test-Path $LogHelperPath) {
     try {
-        Import-Module $LogHelperPath -Force -ErrorAction Stop
-        Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 60
+        Import-Module $LogHelperPath -Force -ErrorAction Stop | Out-Null
+        if (Get-Command "Initialize-LogSystem" -ErrorAction SilentlyContinue) {
+            Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 60 | Out-Null
+        }
         $LogModuleLoaded = $true
-    }
-    catch { Write-Warning "LogHelper chyba: $_" }
+    } catch { Write-Warning "LogHelper sa nepodarilo plne inicializovat: $_" }
 }
 
-if (-not $LogModuleLoaded) {
-    function Write-IntuneLog { param($Message, $Level) Write-Host "[$Level] $Message" -ForegroundColor DarkGray }
+function Write-IntuneLog {
+    param($Message, $Level, $LogFile)
+    $LogType = switch($Level) { "INFO" {"Information"} "WARN" {"Warning"} "ERROR" {"Error"} default {"Information"} }
+    
+    if ($LogModuleLoaded) {
+        Write-CustomLog -Message $Message -Type $LogType -EventSource $EventSource -LogFileName $LogFile
+    } else {
+        Write-Host "[$Level] $Message" -ForegroundColor DarkGray
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 4. KONTROLA MODULOV
+# ---------------------------------------------------------------------------
+if (!(Get-Module -ListAvailable ActiveDirectory)) {
+    Write-IntuneLog -Message "Modul ActiveDirectory chyba." -Level ERROR -LogFile $LogFile
+    return
+}
+Import-Module ActiveDirectory -ErrorAction Stop | Out-Null
+
+if ($TestMode) {
+    Write-Host "`n=== TESTOVACI REZIM (WHATIF) ===" -ForegroundColor Yellow -BackgroundColor DarkRed
+    Write-Host "Ziadne zmeny v AD sa nevykonaju (Simulacia)!`n" -ForegroundColor Yellow
 }
 
 $modeMsg = if ($TestMode) { "TEST/WHATIF" } else { "PROD" }
-Write-IntuneLog -Message "Start aplikacie [$modeMsg] v3.9. LogFile: $LogFile" -Level INFO -LogFile $LogFile
+Write-IntuneLog -Message "Start aplikacie [$modeMsg] v3.16. LogFile: $LogFile" -Level INFO -LogFile $LogFile
 
 # ---------------------------------------------------------------------------
-# VYHLADANIE PREDLOHY
+# 5. VYHLADANIE PREDLOHY
 # ---------------------------------------------------------------------------
-
 $searchName = Read-Host "Zadaj priezvisko vzoroveho pouzivatela"
 Write-IntuneLog -Message "Hladam: $searchName" -Level INFO -LogFile $LogFile
 
@@ -99,252 +131,134 @@ for ($i = 0; $i -lt $users.Count; $i++) {
     Write-Host "[$i] $($users[$i].DisplayName) ($($users[$i].UserPrincipalName))"
 }
 
-# Vynuteny vyber cisla
 $validSelection = $false
 $selectedIndex = -1
 do {
-    $choice = Read-Host "`nVyberte číslo (0 - $(($users.Count) - 1))"
+    $choice = Read-Host "`nVyberte cislo (0 - $(($users.Count) - 1))"
     if ($choice -match '^\d+$') {
         $selectedIndex = [int]$choice
         if ($selectedIndex -ge 0 -and $selectedIndex -lt $users.Count) { $validSelection = $true }
-        else { Write-Host "CHYBA: Číslo je mimo rozsahu!" -ForegroundColor Red }
-    }
-    else { Write-Host "CHYBA: Musíte zadať číslo!" -ForegroundColor Red }
+        else { Write-Host "CHYBA: Cislo je mimo rozsahu!" -ForegroundColor Red }
+    } else { Write-Host "CHYBA: Musite zadat cislo!" -ForegroundColor Red }
 } until ($validSelection)
 
 $template = $users[$selectedIndex]
-Write-IntuneLog -Message "Vybrata predloha: $($template.UserPrincipalName)" -Level INFO -LogFile $LogFile
+$propsToLoad = @("MemberOf", "Description", "Title", "Department", "Company", "StreetAddress", "City", "PostalCode", "State", "Country", "Manager", "PhysicalDeliveryOfficeName", "OfficePhone")
+$templateFull = Get-ADUser $template.DistinguishedName -Properties $propsToLoad
 
 # ---------------------------------------------------------------------------
-# ZADANIE UDAJOV
+# 6. ZADANIE UDAJOV
 # ---------------------------------------------------------------------------
-
 Write-Host "`nZadaj udaje noveho uctu:" -ForegroundColor Cyan
-$newName = Read-Host "Meno"
+$newTitle   = Read-Host "Titul pred menom (napr. Ing., Mgr., Bc. - ak nema, stlacte Enter)"
+$newName    = Read-Host "Meno"
 $newSurname = Read-Host "Priezvisko"
-$displayName = "$newName $newSurname"
 
-# --- KONTROLA DUPLICITY MENA ---
+$displayName = if ([string]::IsNullOrWhiteSpace($newTitle)) { "$newSurname $newName" } else { "$newSurname $newName, $newTitle" }
+
 $dupUsers = Get-ADUser -Filter "GivenName -eq '$newName' -and Surname -eq '$newSurname'" -Properties DisplayName, SamAccountName, Enabled
 if ($dupUsers) {
     Write-Host "`n!!! POZOR: V AD UZ EXISTUJE UZIVATEL S TYMTO MENOM !!!" -ForegroundColor Red -BackgroundColor Yellow
-    foreach ($u in $dupUsers) {
-        Write-Host " -> $($u.DisplayName) (Login: $($u.SamAccountName), Aktivny: $($u.Enabled))" -ForegroundColor Red
-    }
-    $continue = Read-Host "`nChcete napriek tomu pokracovat a vytvorit dalsieho? (A/N)"
-    if ($continue -ne "A") {
-        Write-Host "Ukoncene uzivatelom." -ForegroundColor Yellow
-        return
-    }
+    foreach ($u in $dupUsers) { Write-Host " -> $($u.DisplayName) (Login: $($u.SamAccountName))" -ForegroundColor Red }
+    if ((Read-Host "`nChcete napriek tomu pokracovat? (A/N)") -ne "A") { return }
 }
 
-# --- EMAIL LOGIKA (Masiarstvo vs Tauris) ---
-$sourceEmail = $template.UserPrincipalName
-if ([string]::IsNullOrEmpty($sourceEmail)) { $sourceEmail = $template.EmailAddress }
-
-$domainPart = "@tauris.sk"
-if ($sourceEmail -match "@masiarstvoubyka.sk") {
-    $domainPart = "@masiarstvoubyka.sk"
-}
-
+$sourceEmail = if ($templateFull.UserPrincipalName) { $templateFull.UserPrincipalName } else { $templateFull.EmailAddress }
+$domainPart = if ($sourceEmail -match "@masiarstvoubyka.sk") { "@masiarstvoubyka.sk" } else { "@tauris.sk" }
 $emailPrefixInput = Read-Host "Email (pred $domainPart)"
-if ($emailPrefixInput -match "@") { $emailPrefixInput = $emailPrefixInput.Split('@')[0] }
-$newEmail = "$emailPrefixInput$domainPart"
-Write-Host " -> Vysledny email: $newEmail" -ForegroundColor Gray
+$newEmail = "$($emailPrefixInput.Split('@')[0])$domainPart"
 
-
-# --- EMPLOYEE ID (5 alebo 7 MIEST) ---
 do {
     $empIDInput = Read-Host "Employee ID (5 alebo 7 miest, musi zacinat 0)"
-    
-    # Regex: Zacina 0 a nasleduju 4 cislice (spolu 5) ALEBO Zacina 0 a nasleduje 6 cislic (spolu 7)
-    if ($empIDInput -match "^(0\d{4}|0\d{6})$") {
-        $newEmpID = $empIDInput
-        $empIDValid = $true
-    }
-    else { 
-        Write-Host "CHYBA: ID musi mat 5 alebo 7 cislic a zacinat nulou (napr. 01234 alebo 0123456)." -ForegroundColor Red
-        $empIDValid = $false 
-    }
+    $empIDValid = $empIDInput -match "^(0\d{4}|0\d{6})$"
+    if (-not $empIDValid) { Write-Host "CHYBA: ID musi mat 5 alebo 7 cislic a zacinat nulou." -ForegroundColor Red }
 } until ($empIDValid)
 
-
-# --- SAM LOGIN ---
 $cleanSurname = Remove-Diacritics $newSurname
 $baseSam = $cleanSurname.ToLower().Replace(" ", "")
 $candidateSam = $baseSam
 $counter = 1
-Write-Host "Generujem navrh loginu..." -ForegroundColor DarkGray
 while (Get-ADUser -Filter "SamAccountName -eq '$candidateSam'" -ErrorAction SilentlyContinue) {
     $candidateSam = "$baseSam$counter"
     $counter++
 }
 $newSamInput = Read-Host "SAM login [$candidateSam]"
-if ([string]::IsNullOrWhiteSpace($newSamInput)) { $newSam = $candidateSam } else { $newSam = $newSamInput }
+$newSam = if ([string]::IsNullOrWhiteSpace($newSamInput)) { $candidateSam } else { $newSamInput }
 
-
-# --- TELEFON ---
 do {
-    $phoneInput = Read-Host "Telefon (zadajte 09XXXXXXXX)"
-    if ($phoneInput -match "^09\d{8}$") {
-        $newPhone = "+421" + $phoneInput.Substring(1)
-        $phoneValid = $true
-        Write-Host " -> Formatovane na: $newPhone" -ForegroundColor Gray
+    $templatePhone = $templateFull.OfficePhone
+    $prompt = if ($templatePhone) { "Telefon (09XXXXXXXX alebo Enter pre vzor: $templatePhone)" } else { "Telefon (09XXXXXXXX)" }
+    $phoneInput = Read-Host $prompt
+    if ([string]::IsNullOrWhiteSpace($phoneInput) -and $templatePhone) {
+        $newPhone = $templatePhone; $phoneValid = $true
+    } elseif ($phoneInput -match "^09\d{8}$") {
+        $newPhone = "+421" + $phoneInput.Substring(1); $phoneValid = $true
+    } else {
+        Write-Host "CHYBA: Nespravny format." -ForegroundColor Red; $phoneValid = $false
     }
-    else { Write-Host "CHYBA: Zadajte 10 cislic zacinajucich 09." -ForegroundColor Red; $phoneValid = $false }
 } until ($phoneValid)
-
 
 $password = "Tauris$(Get-Date -Format yyyy)"
 $passwordSecure = ConvertTo-SecureString $password -AsPlainText -Force
 
-Write-IntuneLog -Message "Priprava: $newSam ($displayName). Tel: $newPhone. ID: $newEmpID" -Level INFO -LogFile $LogFile
+# ---------------------------------------------------------------------------
+# 7. TECHNICKA KONTROLA A CIELOVA OU
+# ---------------------------------------------------------------------------
+if (Get-ADUser -Filter "SamAccountName -eq '$newSam'" -ErrorAction SilentlyContinue) { Write-Host "CHYBA: Login existuje!" -ForegroundColor Red; return }
+$targetOU = $templateFull.DistinguishedName -replace '^CN=.+?,(?=OU=|CN=)', ''
 
 # ---------------------------------------------------------------------------
-# KONTROLA EXISTENCIE UDAJOV (Technicka duplicita)
-# ---------------------------------------------------------------------------
-Write-Host "`nPrebieha technicka kontrola..." -ForegroundColor Yellow
-if (Get-ADUser -Filter "SamAccountName -eq '$newSam'" -ErrorAction SilentlyContinue) {
-    Write-Host "CHYBA: Login '$newSam' uz existuje!" -ForegroundColor Red; return
-}
-if (Get-ADObject -Filter "mail -eq '$newEmail' -or proxyAddresses -like '*:$newEmail'" -Properties mail) {
-    Write-Host "CHYBA: Email '$newEmail' uz je obsadeny!" -ForegroundColor Red; return
-}
-
-# ---------------------------------------------------------------------------
-# PRIPRAVA DAT Z PREDLOHY
-# ---------------------------------------------------------------------------
-$propsToLoad = @("MemberOf", "Description", "Title", "Department", "Company", "StreetAddress", "City", "PostalCode", "State", "Country", "Manager", "PhysicalDeliveryOfficeName")
-$templateFull = Get-ADUser $template.DistinguishedName -Properties $propsToLoad
-
-$dn = $templateFull.DistinguishedName
-$commaIndex = $dn.IndexOf(",")
-if ($commaIndex -gt 0) { $targetOU = $dn.Substring($commaIndex + 1) } 
-else { throw "Nepodarilo sa urcit rodicovsku cestu z DN: $dn" }
-
-$managerName = "---"
-if ($templateFull.Manager) {
-    $mgrObj = Get-ADUser $templateFull.Manager -Properties DisplayName
-    $managerName = $mgrObj.DisplayName
-}
-
-# ---------------------------------------------------------------------------
-# SUHRN (SUMMARY SCREEN)
+# 8. SUHRN A POTVRDENIE
 # ---------------------------------------------------------------------------
 Clear-Host
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "          SUHRN NOVEHO UZIVATELA          " -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Meno a Priezvisko : " -NoNewline; Write-Host $displayName -ForegroundColor Green
-Write-Host "Email             : " -NoNewline; Write-Host $newEmail -ForegroundColor Green
-Write-Host "Telefon           : " -NoNewline; Write-Host $newPhone -ForegroundColor Green
-Write-Host "Osobne cislo (ID) : " -NoNewline; Write-Host $newEmpID -ForegroundColor Green
-Write-Host "Login (SAM)       : " -NoNewline; Write-Host $newSam -ForegroundColor Green
-Write-Host "Heslo             : " -NoNewline; Write-Host $password -ForegroundColor Green
-Write-Host "------------------------------------------" -ForegroundColor DarkGray
-Write-Host "PRENESENE ZAZNAMY (Zo vzoru):" -ForegroundColor Yellow
-Write-Host "Zdrojova OU       : $targetOU"
-Write-Host "Manazer           : $managerName"
-Write-Host "Kancelaria        : $(if($templateFull.PhysicalDeliveryOfficeName){$templateFull.PhysicalDeliveryOfficeName}else{'---'})"
-Write-Host "Adresa            : $(if($templateFull.City){$templateFull.City + ', ' + $templateFull.StreetAddress}else{'---'})"
-Write-Host "Pocet AD Skupin   : $($templateFull.MemberOf.Count)"
-Write-Host "==========================================" -ForegroundColor Cyan
-
-$confirm = Read-Host "Suhlasite s vytvorenim uctu? (A/N)"
-if ($confirm -ne "A") {
-    Write-Host "Akcia zrusena uzivatelom." -ForegroundColor Red
-    return
-}
+Write-Host "================ SUHRN ================" -ForegroundColor Cyan
+Write-Host "Meno: $displayName`nEmail: $newEmail`nLogin: $newSam`nOU: $targetOU"
+Write-Host "=======================================" -ForegroundColor Cyan
+if ((Read-Host "Suhlasite s vytvorenim? (A/N)") -ne "A") { return }
 
 # ---------------------------------------------------------------------------
-# VYTVORENIE UCTU + SKUPINY (CORE)
+# 9. EXECUTION
 # ---------------------------------------------------------------------------
-
 try {
-    Write-IntuneLog -Message "Cielova cesta: $targetOU" -Level INFO -LogFile $LogFile
-
     $userParams = @{
         Name = $displayName; DisplayName = $displayName; GivenName = $newName; Surname = $newSurname
-        EmailAddress = $newEmail; OfficePhone = $newPhone; EmployeeID = $newEmpID
+        EmailAddress = $newEmail; OfficePhone = $newPhone; EmployeeID = $empIDInput
         SamAccountName = $newSam; UserPrincipalName = $newEmail; Path = $targetOU
-        Description = $templateFull.Description; Title = $templateFull.Title; Department = $templateFull.Department
-        Company = $templateFull.Company; Manager = $templateFull.Manager; Office = $templateFull.PhysicalDeliveryOfficeName
-        StreetAddress = $templateFull.StreetAddress; City = $templateFull.City; PostalCode = $templateFull.PostalCode
-        State = $templateFull.State; Country = $templateFull.Country
-        AccountPassword = $passwordSecure; Enabled = $false; ChangePasswordAtLogon = $false
-        ErrorAction = "Stop"
+        Description = $templateFull.Description; Title = $templateFull.Title
+        Department = $templateFull.Department; Company = $templateFull.Company
+        Manager = $templateFull.Manager; Office = $templateFull.PhysicalDeliveryOfficeName
+        StreetAddress = $templateFull.StreetAddress; City = $templateFull.City
+        PostalCode = $templateFull.PostalCode; State = $templateFull.State; Country = $templateFull.Country
+        AccountPassword = $passwordSecure; Enabled = $false; ChangePasswordAtLogon = $false; ErrorAction = "Stop"
     }
 
     New-ADUser @userParams -WhatIf:$UseWhatIf
+    Write-IntuneLog -Message "Ucet $newSam vytvoreny (WhatIf=$UseWhatIf)" -Level INFO -LogFile $LogFile
 
-    if ($TestMode) { Write-Host "`n[WHATIF] Ucet vytvoreny." -ForegroundColor Cyan } 
-    else { Write-Host "`nUcet $displayName uspesne vytvoreny." -ForegroundColor Green }
-    
-    Write-IntuneLog -Message "Ucet $newSam spracovany (WhatIf=$UseWhatIf)" -Level INFO -LogFile $LogFile
-
-    # Skupiny
-    $ok = 0; $fail = 0
     foreach ($group in $templateFull.MemberOf) {
-        if ($TestMode) { Write-Host "WHATIF: Pridanie do skupiny -> $group" -ForegroundColor DarkGray; $ok++ } 
-        else {
-            try { Add-ADGroupMember -Identity $group -Members $newSam -ErrorAction Stop; $ok++ } 
-            catch { $fail++; Write-Host "Chyba skupiny: $group" -ForegroundColor Yellow }
-        }
+        if ($TestMode) { Write-Host "[WHATIF] Pridanie do: $group" } 
+        else { Add-ADGroupMember -Identity $group -Members $newSam -ErrorAction SilentlyContinue }
     }
-    Write-Host "Skupiny: OK=$ok, Chyba=$fail" -ForegroundColor Green
-    Write-IntuneLog -Message "Skupiny: OK=$ok, Chyba=$fail" -Level INFO -LogFile $LogFile
 
-    # -----------------------------------------------------------------------
-    # DOPLNKOVE SLUZBY (AUTO-ENABLE)
-    # -----------------------------------------------------------------------
-    Write-Host "`n----------------------------------------" -ForegroundColor DarkGray
-    $askEnable = Read-Host "DOPLNOK: Naplanovat automaticke zapnutie uctu? (A/N)"
-    
-    if ($askEnable -eq "A") {
-        $autoEnableDate = $null
-        do {
-            $dateStr = Read-Host " -> Zadajte datum aktivacie (dd.MM.yyyy)"
-            try {
-                $autoEnableDate = [DateTime]::ParseExact($dateStr, "dd.MM.yyyy", $null).Date.AddHours(6)
-                if ($autoEnableDate -le (Get-Date)) { 
-                    Write-Host "    CHYBA: Datum musi byt v buducnosti!" -ForegroundColor Red; $autoEnableDate = $null 
-                }
+    if ((Read-Host "`nNaplanovat automaticke zapnutie? (A/N)") -eq "A") {
+        $dateStr = Read-Host "Datum aktivacie (dd.MM.yyyy)"
+        try {
+            $autoDate = [DateTime]::ParseExact($dateStr, "dd.MM.yyyy", $null).Date.AddHours(6)
+            if ($autoDate -gt (Get-Date)) {
+                $taskName = "Enable-ADUser-$newSam"
+                $taskCmd = "Import-Module ActiveDirectory; Set-ADUser -Identity '$newSam' -Enabled `$true"
+                $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-Command `"$taskCmd`""
+                $trigger = New-ScheduledTaskTrigger -Once -At $autoDate
+                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -RunLevel Highest -WhatIf:$UseWhatIf | Out-Null
+                Write-Host "Uloha naplanovana na $autoDate" -ForegroundColor Green
             }
-            catch { Write-Host "    CHYBA: Nespravny format datumu." -ForegroundColor Red }
-        } until ($autoEnableDate)
-
-        # 1. Update Description
-        $newDescription = "[AUTO-ENABLE: $($autoEnableDate.ToString('dd.MM.yyyy'))] " + $templateFull.Description
-        if ($TestMode) { Write-Host "WHATIF: Update popis..." -ForegroundColor Cyan } 
-        else {
-            try { Set-ADUser -Identity $newSam -Description $newDescription -ErrorAction Stop } 
-            catch { Write-Warning "Chyba popisu: $_" }
-        }
-
-        # 2. Vytvorenie Tasku
-        $taskName = "Enable-ADUser-$newSam"
-        $taskCommand = "Import-Module ActiveDirectory; Set-ADUser -Identity '$newSam' -Enabled `$true; Write-EventLog -LogName Application -Source 'ADUserCloneApp' -EventId 100 -EntryType Information -Message 'Ucet $newSam bol automaticky povoleny.'"
-        
-        Write-Host " -> Planujem ulohu '$taskName' na $($autoEnableDate)..." -ForegroundColor Yellow
-        if ($TestMode) { Write-Host "WHATIF: Register-ScheduledTask..." -ForegroundColor Cyan } 
-        else {
-            try {
-                $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-NoProfile -WindowStyle Hidden -Command `"$taskCommand`""
-                $trigger = New-ScheduledTaskTrigger -Once -At $autoEnableDate
-                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description "Auto-Enable $newSam" -RunLevel Highest -ErrorAction Stop | Out-Null
-                Write-Host " -> Uloha uspesne vytvorena." -ForegroundColor Green
-                Write-IntuneLog -Message "Doplnok: Naplanovany Auto-Enable na $($autoEnableDate)" -Level INFO -LogFile $LogFile
-            }
-            catch {
-                Write-Host "CHYBA ulohy: $_" -ForegroundColor Red
-                Write-IntuneLog -Message "Doplnok: Chyba Task: $_" -Level ERROR -LogFile $LogFile
-            }
-        }
+        } catch { Write-Warning "Ulohu sa nepodarilo vytvorit." }
     }
 }
 catch {
-    Write-Host "KRITICKA CHYBA: $_" -ForegroundColor Red
     Write-IntuneLog -Message "Kriticka chyba: $_" -Level ERROR -LogFile $LogFile
+    Write-Host "CHYBA: $_" -ForegroundColor Red
 }
 
 Write-IntuneLog -Message "Koniec aplikacie" -Level INFO -LogFile $LogFile
+

@@ -56,7 +56,7 @@ $LogFile = "IPcheck.log"
 $EventSource = "IPLocationWin32App"
 
 # Inicializácia log systému
-Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
+$null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
 
 # Začiatok logovania
 Write-IntuneLog -Message "Začiatok inštalácie Win32 app - určenie lokácie podľa IP." -Level INFO -LogFile $LogFile -EventSource $EventSource
@@ -64,12 +64,12 @@ Write-IntuneLog -Message "Začiatok inštalácie Win32 app - určenie lokácie p
 try {
     # Načítaj .env
     Import-DotEnv
-    $ClientId = $env:CLIENT_ID
-    $TenantId = $env:TENANT_ID
-    $ClientSecret = $env:CLIENT_SECRET
+    $ClientId     = $env:GRAPH_CLIENT_ID
+    $TenantId     = $env:GRAPH_TENANT_ID
+    $ClientSecret = $env:GRAPH_CLIENT_SECRET
 
     if ([string]::IsNullOrEmpty($ClientId) -or [string]::IsNullOrEmpty($TenantId) -or [string]::IsNullOrEmpty($ClientSecret)) {
-        throw "Chýbajúce údaje v .env: CLIENT_ID, TENANT_ID alebo CLIENT_SECRET."
+        throw "Chýbajúce údaje v .env: GRAPH_CLIENT_ID, GRAPH_TENANT_ID alebo GRAPH_CLIENT_SECRET."
     }
     Write-IntuneLog -Message ".env súbor načítaný úspešne." -Level INFO -LogFile $LogFile -EventSource $EventSource
 
@@ -78,16 +78,20 @@ try {
     if (-not (Test-Path $JsonPath)) {
         throw "IPLocationMap.json sa nenašiel na ceste: $JsonPath."
     }
-    $ipMap = Get-Content $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
+    # ConvertFrom-Json -AsHashtable nie je podporované v PS 5.1 (Intune default)
+    $jsonContent = Get-Content $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $ipMap = @{}
+    $jsonContent.PSObject.Properties | ForEach-Object { $ipMap[$_.Name] = $_.Value }
     Write-IntuneLog -Message "IPLocationMap.json načítaný - počet prefixov: $($ipMap.Count)." -Level INFO -LogFile $LogFile -EventSource $EventSource
 
     # Získaj aktuálnu IP (prvá aktívna v 10.x rozsahu)
-    $ipAddresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
-    Where-Object { $_.IPAddress -match '^10\.' -and $_.InterfaceOperationalStatus -eq 'Up' }
+    # InterfaceOperationalStatus nie je vlastnosť Get-NetIPAddress; používame AddressState
+    $ipAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+        Where-Object { $_.IPAddress -match '^10\.' -and $_.AddressState -eq 'Preferred' })
     if ($ipAddresses.Count -eq 0) {
         throw "Nenašla sa žiadna aktívna IP adresa v rozsahu 10.x.x.x."
     }
-    $currentIP = $ipAddresses[0].IPAddress
+    $currentIP = ($ipAddresses | Select-Object -First 1).IPAddress
     Write-IntuneLog -Message "Aktuálna IP adresa: $currentIP." -Level INFO -LogFile $LogFile -EventSource $EventSource
 
     # Určenie lokácie - longest prefix match
@@ -104,11 +108,11 @@ try {
     }
     Write-IntuneLog -Message "Určená lokácia: $location (prefix: $longestPrefix)." -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
 
-    # Inštalácia Microsoft.Graph modulu ak chýba (pre SYSTEM context, AllUsers scope)
-    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-        Install-Module Microsoft.Graph -Scope AllUsers -Force -ErrorAction Stop
+    # Inštalácia len potrebných Graph modulov ak chýbajú
+    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.DirectoryManagement)) {
+        Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -Scope AllUsers -Force -ErrorAction Stop
     }
-    Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Devices -ErrorAction Stop
+    Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
 
     # Autentifikácia k Microsoft Graph (client credentials flow)
     $authBody = @{
@@ -121,22 +125,30 @@ try {
         -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
     $accessToken = $tokenResponse.access_token
 
-    Connect-MgGraph -AccessToken $accessToken -NoWelcome -ErrorAction Stop
+    # Graph SDK v2 vyžaduje SecureString pre -AccessToken
+    $secureToken = ConvertTo-SecureString $accessToken -AsPlainText -Force
+    $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
 
-    # Získanie device objektu podľa mena počítača
+    # Získanie device objektu - Select-Object -First 1 pre prípad viacerých zariadení s rovnakým menom
     $deviceName = $env:COMPUTERNAME
-    $device = Get-MgDevice -Filter "displayName eq '$deviceName'" -All -ErrorAction Stop
+    $response = Invoke-MgGraphRequest -Method GET `
+        -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id,displayName" `
+        -ErrorAction Stop
+    $device = $response.value | Select-Object -First 1
     if (-not $device) {
         throw "Zariadenie '$deviceName' sa nenašlo v Entra ID."
     }
 
     # Aktualizácia extensionAttribute1
     $updateBody = @{
-        onPremisesExtensionAttributes = @{
+        extensionAttributes = @{
             extensionAttribute1 = $location
         }
-    }
-    Update-MgDevice -DeviceId $device.Id -BodyParameter $updateBody -ErrorAction Stop
+    } | ConvertTo-Json -Depth 3
+
+    Invoke-MgGraphRequest -Method PATCH `
+        -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
+        -Body $updateBody -ContentType "application/json" -ErrorAction Stop
 
     Write-IntuneLog -Message "Lokácia '$location' úspešne zapísaná do extensionAttribute1 pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
 
@@ -157,5 +169,5 @@ catch {
 }
 finally {
     # Odpojenie Graph
-    Disconnect-MgGraph -ErrorAction SilentlyContinue
+    $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
 }

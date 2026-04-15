@@ -1,27 +1,34 @@
 {
 	"folders": [
 		{
-			"path": "../Python"
-		},
-		{
-			"path": "../HTML"
-		},
-		{
+			"name": "PowerShell",
 			"path": "."
 		},
 		{
+			"name": "HTML",
+			"path": "../HTML"
+		},
+		{
+			"name": "PHP",
 			"path": "../PHP"
 		},
 		{
+			"name": "React",
 			"path": "../React"
 		},
 		{
+			"name": "Docker",
 			"path": "../Docker"
+		},
+		{
+			"name": "Ansible",
+			"path": "../Ansible"
 		}
 	],
 	"settings": {
 		"powershell.cwd": "Python",
 		"terminal.explorerKind": "external",
-		"terminal.integrated.accessibleViewFocusOnCommandExecution": true
+		"terminal.integrated.accessibleViewFocusOnCommandExecution": true,
+		"terminal.integrated.cwd": "D:\\findrik\\Powershell"
 	}
 }
