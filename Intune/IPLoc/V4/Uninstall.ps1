@@ -33,18 +33,19 @@ Import-Module LogHelper -ErrorAction SilentlyContinue
 
 $LogDir = "C:\TaurisIT\Log\IPcheck"
 $LogFile = "IPcheck.log"
+$LogFilePath = Join-Path $LogDir $LogFile
 $EventSource = "IPLocationUninstall"
 
+# Inicializácia log systému
 if (Test-Path "C:\Program Files\WindowsPowerShell\Modules\LogHelper") {
     $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
-    $null = Write-IntuneLog -Message "Uninstall script spustený" -Level INFO -LogFile $LogFile
 }
 
 try {
     # Načítaj credentials z .env
     Import-DotEnv
-    $clientId     = $env:GRAPH_CLIENT_ID
-    $tenantId     = $env:GRAPH_TENANT_ID
+    $clientId = $env:GRAPH_CLIENT_ID
+    $tenantId = $env:GRAPH_TENANT_ID
     $clientSecret = $env:GRAPH_CLIENT_SECRET
 
     if ([string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($tenantId) -or [string]::IsNullOrEmpty($clientSecret)) {
@@ -82,17 +83,15 @@ try {
     }
 
     # Vymazanie extensionAttribute1 (nastavenie na null)
-    $clearBody = @{
-        extensionAttributes = @{
-            extensionAttribute1 = $null
-        }
-    } | ConvertTo-Json -Depth 3
+    $clearBody = ConvertTo-Json -InputObject @{
+        extensionAttribute1 = $null
+    }
 
     Invoke-MgGraphRequest -Method PATCH `
         -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
         -Body $clearBody -ContentType "application/json" -ErrorAction Stop
 
-    $null = Write-IntuneLog -Message "extensionAttribute1 vymazaný pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile
+    Write-IntuneLog -Message "extensionAttribute1 vymazaný pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
 
     # Odstránenie lokálneho log adresára
     if (Test-Path $LogDir) {
@@ -103,7 +102,8 @@ try {
 }
 catch {
     $errorMessage = $_.Exception.Message
-    $null = Write-IntuneLog -Message "Uninstall chyba: $errorMessage" -Level ERROR -LogFile $LogFile
+    Write-IntuneLog -Message "Uninstall chyba: $errorMessage" -Level ERROR -LogFile $LogFile -EventSource $EventSource
+    Send-IntuneAlert -Message "Uninstall chyba: $errorMessage" -Severity Error -EventSource $EventSource -LogFile $LogFile
     Write-Output "Chyba: $errorMessage"
     exit 1
 }

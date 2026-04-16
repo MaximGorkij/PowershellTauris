@@ -47,13 +47,13 @@ function Import-DotEnv {
     }
 }
 
-# Import LogHelper modulu (predpokladáme, že je nainštalovaný)
-Import-Module LogHelper -ErrorAction Stop
-
 # Nastavenia logovania
 $LogDir = "C:\TaurisIT\Log\IPcheck"
 $LogFile = "IPcheck.log"
 $EventSource = "IPLocationWin32App"
+
+# Import LogHelper modulu
+Import-Module LogHelper -ErrorAction Stop
 
 # Inicializácia log systému
 $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
@@ -64,8 +64,8 @@ Write-IntuneLog -Message "Začiatok inštalácie Win32 app - určenie lokácie p
 try {
     # Načítaj .env
     Import-DotEnv
-    $ClientId     = $env:GRAPH_CLIENT_ID
-    $TenantId     = $env:GRAPH_TENANT_ID
+    $ClientId = $env:GRAPH_CLIENT_ID
+    $TenantId = $env:GRAPH_TENANT_ID
     $ClientSecret = $env:GRAPH_CLIENT_SECRET
 
     if ([string]::IsNullOrEmpty($ClientId) -or [string]::IsNullOrEmpty($TenantId) -or [string]::IsNullOrEmpty($ClientSecret)) {
@@ -140,11 +140,9 @@ try {
     }
 
     # Aktualizácia extensionAttribute1
-    $updateBody = @{
-        extensionAttributes = @{
-            extensionAttribute1 = $location
-        }
-    } | ConvertTo-Json -Depth 3
+    $updateBody = ConvertTo-Json -InputObject @{
+        extensionAttribute1 = $location
+    }
 
     Invoke-MgGraphRequest -Method PATCH `
         -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
