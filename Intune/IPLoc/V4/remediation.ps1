@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Remediation: Zapíše správnu lokáciu do extensionAttribute1 podľa aktuálnej IP
+    Remediation: Zapise spravu lokaciju do extensionAttribute1 podla aktualnej IP
 #>
 
 function Import-DotEnv {
@@ -8,7 +8,7 @@ function Import-DotEnv {
         [string]$Path = (Join-Path $PSScriptRoot ".env")
     )
     if (-not (Test-Path $Path)) {
-        throw ".env súbor sa nenašiel na ceste: $Path."
+        throw ".env subor sa nenasiel na ceste: $Path."
     }
     Get-Content $Path -Encoding UTF8 | ForEach-Object {
         $line = $_.Trim()
@@ -23,37 +23,64 @@ function Import-DotEnv {
     }
 }
 
+# Wrapper na Write-IntuneLog - kombinuje LogHelper modul s Write-Host
+function Write-ProcessLog {
+    param (
+        [string]$Message,
+        [string]$Level = "INFO",
+        [string]$LogFile,
+        [string]$EventSource
+    )
+    
+    # 1. Zapis do LogFile a Event Log cez LogHelper modul
+    if (Get-Command Write-IntuneLog -ErrorAction SilentlyContinue) {
+        Write-IntuneLog -Message $Message -Level $Level -LogFile $LogFile -EventSource $EventSource
+    }
+    
+    # 2. Write-Host s farbou a casovou peciatkou (Intune ho automaticky zachytava)
+    $color = switch ($Level) {
+        "INFO"    { "Cyan" }
+        "OK"      { "Green" }
+        "SUCCESS" { "Yellow" }
+        "DEBUG"   { "DarkCyan" }
+        "ERROR"   { "Red" }
+        "WARNING" { "Yellow" }
+        default   { "White" }
+    }
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
+}
+
 # Import LogHelper modulu
 Import-Module LogHelper -ErrorAction SilentlyContinue
 
-$LogDir = "C:\TaurisIT\Log\IPcheck"
-$LogFile = "IPcheck.log"
-$LogFilePath = Join-Path $LogDir $LogFile
-$EventSource = "IPLocationRemediation"
+$LogDir = "C:\TaurisIT\Log\IPLoc"
+$LogFile = Join-Path $LogDir "IPcheck.log"
+$EventSource = "IntuneScript"
 
-# Inicializácia log systému
+# Inicializacia log systemu
 if (Test-Path "C:\Program Files\WindowsPowerShell\Modules\LogHelper") {
     $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
 }
 
 try {
-    # Načítaj JSON mapu
+    # Nacitaj JSON mapu
     $jsonPath = Join-Path $PSScriptRoot "IPLocationMap.json"
-    if (-not (Test-Path $jsonPath)) { throw "IPLocationMap.json nenájdený" }
+    if (-not (Test-Path $jsonPath)) { throw "IPLocationMap.json nenajdeny" }
 
     $jsonContent = Get-Content $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $ipMap = @{}
     $jsonContent.PSObject.Properties | ForEach-Object { $ipMap[$_.Name] = $_.Value }
 
-    # Získaj aktuálnu IP (10.x rozsah)
+    # Ziskaj aktualnu IP (10.x rozsah)
     $ip = Get-NetIPAddress -AddressFamily IPv4 |
     Where-Object { $_.IPAddress -match '^10\.' -and $_.AddressState -eq 'Preferred' } |
     Select-Object -First 1 -ExpandProperty IPAddress
 
-    if (-not $ip) { throw "Žiadna interná 10.x IP nenájdená" }
-    Write-IntuneLog -Message "Aktuálna IP adresa: $ip" -Level INFO -LogFile $LogFile -EventSource $EventSource
+    if (-not $ip) { throw "Ziadna interna 10.x IP nenajdena" }
+    Write-ProcessLog -Message "Aktualna IP adresa: $ip" -Level INFO -LogFile $LogFile -EventSource $EventSource
 
-    # Najdlhší prefix match
+    # Najdlhsi prefix match
     $location = $null
     $longest = ""
     foreach ($prefix in $ipMap.Keys) {
@@ -63,25 +90,25 @@ try {
         }
     }
 
-    if (-not $location) { throw "Žiadna lokácia pre IP $ip" }
-    Write-IntuneLog -Message "Určená lokácia: $location (prefix: $longest)" -Level INFO -LogFile $LogFile -EventSource $EventSource
+    if (-not $location) { throw "Ziadna lokacija pre IP $ip" }
+    Write-ProcessLog -Message "Urcena lokacija: $location (prefix: $longest)" -Level INFO -LogFile $LogFile -EventSource $EventSource
 
-    # Načítaj credentials z .env
+    # Nacitaj credentials z .env
     Import-DotEnv
     $clientId = $env:GRAPH_CLIENT_ID
     $tenantId = $env:GRAPH_TENANT_ID
     $clientSecret = $env:GRAPH_CLIENT_SECRET
 
     if ([string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($tenantId) -or [string]::IsNullOrEmpty($clientSecret)) {
-        throw "Chýbajúce údaje v .env"
+        throw "Chybajuce udaje v .env"
     }
 
-    # Inštalácia modulov ak chýbajú
+    # Instalacija modulov ak chybaju
     if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.DirectoryManagement)) {
         Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -Scope AllUsers -Force -ErrorAction Stop
     }
     Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
-    Write-IntuneLog -Message "Microsoft.Graph moduly načítané" -Level INFO -LogFile $LogFile -EventSource $EventSource
+    Write-ProcessLog -Message "Microsoft.Graph moduly nacitane" -Level INFO -LogFile $LogFile -EventSource $EventSource
 
     $authBody = @{
         grant_type    = "client_credentials"
@@ -94,20 +121,20 @@ try {
         -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
     $token = $tokenResponse.access_token
 
-    # Graph SDK v2 vyžaduje SecureString pre -AccessToken
+    # Graph SDK v2 vyzaduje SecureString pre -AccessToken
     $secureToken = ConvertTo-SecureString $token -AsPlainText -Force
     $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
-    Write-IntuneLog -Message "Pripojenie k Graph OK" -Level INFO -LogFile $LogFile -EventSource $EventSource
+    Write-ProcessLog -Message "Pripojenie k Graph OK" -Level INFO -LogFile $LogFile -EventSource $EventSource
 
     $deviceName = $env:COMPUTERNAME
     $response = Invoke-MgGraphRequest -Method GET `
         -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id,displayName" `
         -ErrorAction Stop
     $device = $response.value | Select-Object -First 1
-    if (-not $device) { throw "Zariadenie $deviceName nenájdené v Entra ID" }
-    Write-IntuneLog -Message "Zariadenie nájdené: $deviceName" -Level INFO -LogFile $LogFile -EventSource $EventSource
+    if (-not $device) { throw "Zariadenie $deviceName nenajdene v Entra ID" }
+    Write-ProcessLog -Message "Zariadenie najdene: $deviceName" -Level INFO -LogFile $LogFile -EventSource $EventSource
 
-    # Aktualizácia extensionAttribute1
+    # Aktualizacia extensionAttribute1
     $patchBody = ConvertTo-Json -InputObject @{
         extensionAttribute1 = $location
     }
@@ -116,22 +143,25 @@ try {
         -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
         -Body $patchBody -ContentType "application/json" -ErrorAction Stop
 
-    Write-IntuneLog -Message "SUCCESS – extensionAttribute1 nastavené na $location (IP: $ip)" -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
+    Write-ProcessLog -Message "SUCCESS - extensionAttribute1 nastavene na $location (IP: $ip)" -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
     
-    # Čistenie starých logov
+    # Cistenie starych logov
     Clear-OldLogs -RetentionDays 30 -LogDirectory $LogDir
     
-    Write-Output "Opravené – nastavené $location"
+    Write-Output "Opravene – nastavene $location"
     exit 0
 
 }
 catch {
     $errorMessage = $_.Exception.Message
-    Write-IntuneLog -Message "Remediation CHYBA: $errorMessage" -Level ERROR -LogFile $LogFile -EventSource $EventSource
-    Send-IntuneAlert -Message "Nepodarilo sa nastaviť lokáciu: $errorMessage" -Severity Error -EventSource $EventSource -LogFile $LogFile
-    Write-Output "Chyba pri zápise: $errorMessage"
+    Write-ProcessLog -Message "Remediation CHYBA: $errorMessage" -Level ERROR -LogFile $LogFile -EventSource $EventSource
+    Send-IntuneAlert -Message "Nepodarilo sa nastavit lokaciju: $errorMessage" -Severity Error -EventSource $EventSource -LogFile $LogFile
+    Write-Output "Chyba pri zapise: $errorMessage"
     exit 1
 }
 finally {
     $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
 }
+
+
+

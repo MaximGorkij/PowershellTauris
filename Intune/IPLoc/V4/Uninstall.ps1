@@ -1,10 +1,10 @@
-# Uninstall.ps1 - Odinštalačný skript pre Intune Win32 aplikáciu
-# Vymaže extensionAttribute1 zo zariadenia v Entra ID a odstráni lokálne logy.
-# Spúšťa sa v SYSTEM kontexte cez Intune.
+# Uninstall.ps1 - Odinstalavacny skript pre Intune Win32 aplikaciu
+# Vymaze extensionAttribute1 zo zariadenia v Entra ID a odstrani lokalne logy.
+# Spusta sa v SYSTEM kontexte cez Intune.
 
 <#
 .SYNOPSIS
-    Intune Win32 app - Vymaže lokáciu z extensionAttribute1 v Entra ID.
+    Intune Win32 app - Vymaze lokaciju z extensionAttribute1 v Entra ID.
 .NOTES
     - Uninstall command: powershell.exe -ExecutionPolicy Bypass -File .\Uninstall.ps1
 #>
@@ -14,7 +14,7 @@ function Import-DotEnv {
         [string]$Path = (Join-Path $PSScriptRoot ".env")
     )
     if (-not (Test-Path $Path)) {
-        throw ".env súbor sa nenašiel na ceste: $Path."
+        throw ".env subor sa nenasiel na ceste: $Path."
     }
     Get-Content $Path -Encoding UTF8 | ForEach-Object {
         $line = $_.Trim()
@@ -29,36 +29,63 @@ function Import-DotEnv {
     }
 }
 
+# Wrapper na Write-IntuneLog - kombinuje LogHelper modul s Write-Host
+function Write-ProcessLog {
+    param (
+        [string]$Message,
+        [string]$Level = "INFO",
+        [string]$LogFile,
+        [string]$EventSource
+    )
+    
+    # 1. Zapis do LogFile a Event Log cez LogHelper modul
+    if (Get-Command Write-IntuneLog -ErrorAction SilentlyContinue) {
+        Write-IntuneLog -Message $Message -Level $Level -LogFile $LogFile -EventSource $EventSource
+    }
+    
+    # 2. Write-Host s farbou a casovou peciatkou (Intune ho automaticky zachytava)
+    $color = switch ($Level) {
+        "INFO"    { "Cyan" }
+        "OK"      { "Green" }
+        "SUCCESS" { "Yellow" }
+        "DEBUG"   { "DarkCyan" }
+        "ERROR"   { "Red" }
+        "WARNING" { "Yellow" }
+        default   { "White" }
+    }
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
+}
+
 Import-Module LogHelper -ErrorAction SilentlyContinue
 
-$LogDir = "C:\TaurisIT\Log\IPcheck"
-$LogFile = "IPcheck.log"
-$LogFilePath = Join-Path $LogDir $LogFile
-$EventSource = "IPLocationUninstall"
+$LogDir = "C:\TaurisIT\Log\IPLoc"
+$LogFile = Join-Path $LogDir "IPcheck.log"
+$EventSource = "IntuneScript"
 
-# Inicializácia log systému
+# Inicializacia log systemu
 if (Test-Path "C:\Program Files\WindowsPowerShell\Modules\LogHelper") {
     $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30
 }
 
 try {
-    # Načítaj credentials z .env
+    # Nacitaj credentials z .env
     Import-DotEnv
     $clientId = $env:GRAPH_CLIENT_ID
     $tenantId = $env:GRAPH_TENANT_ID
     $clientSecret = $env:GRAPH_CLIENT_SECRET
 
     if ([string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($tenantId) -or [string]::IsNullOrEmpty($clientSecret)) {
-        throw "Chýbajúce údaje v .env: GRAPH_CLIENT_ID, GRAPH_TENANT_ID alebo GRAPH_CLIENT_SECRET."
+        throw "Chybajuce udaje v .env: GRAPH_CLIENT_ID, GRAPH_TENANT_ID alebo GRAPH_CLIENT_SECRET."
     }
 
-    # Inštalácia len potrebných Graph modulov ak chýbajú
+    # Instalacija len potrebnych Graph modulov ak chybaju
     if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.DirectoryManagement)) {
         Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -Scope AllUsers -Force -ErrorAction Stop
     }
     Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
 
-    # Autentifikácia k Microsoft Graph
+    # Autentifikacia k Microsoft Graph
     $authBody = @{
         grant_type    = "client_credentials"
         scope         = "https://graph.microsoft.com/.default"
@@ -72,14 +99,14 @@ try {
     $secureToken = ConvertTo-SecureString $accessToken -AsPlainText -Force
     $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
 
-    # Získanie device objektu
+    # Ziskanie device objektu
     $deviceName = $env:COMPUTERNAME
     $response = Invoke-MgGraphRequest -Method GET `
         -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id,displayName" `
         -ErrorAction Stop
     $device = $response.value | Select-Object -First 1
     if (-not $device) {
-        throw "Zariadenie '$deviceName' sa nenašlo v Entra ID."
+        throw "Zariadenie '$deviceName' sa nenaslo v Entra ID."
     }
 
     # Vymazanie extensionAttribute1 (nastavenie na null)
@@ -91,9 +118,9 @@ try {
         -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
         -Body $clearBody -ContentType "application/json" -ErrorAction Stop
 
-    Write-IntuneLog -Message "extensionAttribute1 vymazaný pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
+    Write-ProcessLog -Message "extensionAttribute1 vymazany pre zariadenie '$deviceName'." -Level SUCCESS -LogFile $LogFile -EventSource $EventSource
 
-    # Odstránenie lokálneho log adresára
+    # Odstranenie lokalneho log adresara
     if (Test-Path $LogDir) {
         Remove-Item -Path $LogDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -102,7 +129,7 @@ try {
 }
 catch {
     $errorMessage = $_.Exception.Message
-    Write-IntuneLog -Message "Uninstall chyba: $errorMessage" -Level ERROR -LogFile $LogFile -EventSource $EventSource
+    Write-ProcessLog -Message "Uninstall chyba: $errorMessage" -Level ERROR -LogFile $LogFile -EventSource $EventSource
     Send-IntuneAlert -Message "Uninstall chyba: $errorMessage" -Severity Error -EventSource $EventSource -LogFile $LogFile
     Write-Output "Chyba: $errorMessage"
     exit 1
@@ -110,3 +137,6 @@ catch {
 finally {
     $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
 }
+
+
+
