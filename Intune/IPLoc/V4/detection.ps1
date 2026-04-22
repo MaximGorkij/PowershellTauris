@@ -9,10 +9,12 @@ if (Test-Path $logHelperPath) {
     try {
         Import-Module LogHelper -ErrorAction Stop
         $logHelperAvailable = $true
-    } catch {
+    }
+    catch {
         $logHelperAvailable = $false
     }
-} else {
+}
+else {
     $logHelperAvailable = $false
 }
 
@@ -27,7 +29,8 @@ if (-not (Test-Path -Path $LogDir)) {
 if ($logHelperAvailable) {
     try {
         $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30 -ErrorAction SilentlyContinue
-    } catch { }
+    }
+    catch { }
 }
 
 function Import-DotEnv {
@@ -86,9 +89,9 @@ try {
     Write-IntuneLog -Message "Microsoft.Graph moduly nacitane" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
 
     $authBody = @{
-        grant_type = "client_credentials"
-        scope = "https://graph.microsoft.com/.default"
-        client_id = $clientId
+        grant_type    = "client_credentials"
+        scope         = "https://graph.microsoft.com/.default"
+        client_id     = $clientId
         client_secret = $clientSecret
     }
     $tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
@@ -108,15 +111,18 @@ try {
         Write-IntuneLog -Message "OK - extensionAttribute1 = $location (IP: $ip)" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
         Write-Output "Compliant"
         exit 0
-    } else {
+    }
+    else {
         Write-IntuneLog -Message "Non-compliant: $currentExt, malo by byt: $location (IP: $ip)" -Level "WARNING" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
         Write-Output "Non-compliant"
         exit 1
     }
-} catch {
+}
+catch {
     Write-IntuneLog -Message "Detection chyba: $($_.Exception.Message)" -Level "ERROR" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
     Write-Output "Non-compliant"
     exit 1
-} finally {
+}
+finally {
     $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
 }
