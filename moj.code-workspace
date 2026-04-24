@@ -29,6 +29,10 @@
 		"powershell.cwd": "Python",
 		"terminal.explorerKind": "external",
 		"terminal.integrated.accessibleViewFocusOnCommandExecution": true,
-		"terminal.integrated.cwd": "D:\\findrik\\Powershell"
+		"terminal.integrated.cwd": "D:\\findrik\\Powershell",
+		"chat.tools.terminal.autoApprove": {
+			"git add": true,
+			"git commit": true
+		}
 	}
 }

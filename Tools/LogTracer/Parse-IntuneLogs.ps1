@@ -30,6 +30,15 @@ param(
     # Zobraz len poslednych N zaznamov (po filtrovani)
     [int]$Last = 0,
 
+    # Parsuj len zaznamy za poslednych N hodin (pouzije sa len ak -From nie je zadane)
+    [int]$LastHours = 0,
+
+    # Rozpoznaj a zahrn aj uspesne operacie (Severity='Success'). Pracuje v kombinacii
+    # s -Severity Error (vtedy sa zobrazuju Errory + Success). Pri -Severity All
+    # uz su vsetky zaznamy zahrnute, ale tie co matchuju success vzor budu
+    # pretagovane z Info na Success pre prehladnejsi vystup.
+    [switch]$IncludeSuccessfulInstalls,
+
     # Mapovací súbor (CSV alebo JSON) s GUID → DisplayName mapovaním
     # CSV format: Id,DisplayName
     # JSON format: [{"id": "...", "displayName": "..."}] alebo {"id": "displayName"}
@@ -108,6 +117,7 @@ function Get-SeverityColor {
     switch ($Label) {
         'Error' { 'Red' }
         'Warning' { 'Yellow' }
+        'Success' { 'Green' }
         default { 'Gray' }
     }
 }
@@ -238,12 +248,50 @@ foreach ($lf in $allLogFiles) {
 
 Write-Host "Nacitanych $($allEntries.Count) zaznamov celkovo." -ForegroundColor Cyan
 
+# ---- detekcia uspesnych operacii (Success) ----------------------------------
+
+$successPatterns = @(
+    '\bApp with id:\s*[a-f0-9\-]+.*is\s+Installed\b',
+    '\bSuccessfully\s+(installed|uninstalled|applied|enforced|downloaded|executed|processed|completed|detected)\b',
+    '\bInstallation\s+(is\s+)?(finished|completed)\s+(with\s+)?success',
+    '\bExecution\s+(is\s+)?success',
+    '"EnforcementState"\s*:\s*1000\b',
+    '"Applicability"\s*:\s*0\b.*"ComplianceState"\s*:\s*1\b',
+    '\bApplicationResult\s*[:=]\s*"?Success"?',
+    '\bprocess\s+completed\s+with\s+exit\s+code\s+0\b',
+    '\bOperation\s+completed\s+success',
+    '\bDetection\s+state:\s*1\b',
+    '\bWin32App.*detection.*state.*installed\b'
+)
+
+if ($IncludeSuccessfulInstalls) {
+    $successRegex = ($successPatterns -join '|')
+    $successCount = 0
+    foreach ($entry in $allEntries) {
+        if ($entry.Message -match $successRegex) {
+            $entry.Severity = 'Success'
+            $entry.SeverityNum = 0
+            $successCount++
+        }
+    }
+    Write-Host "Rozpoznane uspesne operacie: $successCount" -ForegroundColor Green
+}
+
+# ---- priprava casoveho okna -------------------------------------------------
+
+if ($LastHours -gt 0 -and -not $From) {
+    $From = (Get-Date).AddHours(-$LastHours)
+    Write-Host "Casove okno: od $($From.ToString('yyyy-MM-dd HH:mm:ss')) (-LastHours $LastHours)" -ForegroundColor DarkGray
+}
+
 # ---- filtrovanie ------------------------------------------------------------
 
 $filtered = $allEntries | Where-Object { $_.Timestamp -ne $null }
 
 if ($Severity -ne 'All') {
-    $filtered = $filtered | Where-Object { $_.Severity -eq $Severity }
+    $allowedSev = @($Severity)
+    if ($IncludeSuccessfulInstalls) { $allowedSev += 'Success' }
+    $filtered = $filtered | Where-Object { $_.Severity -in $allowedSev }
 }
 
 if ($From) {
@@ -277,6 +325,7 @@ $summary = $filtered | Group-Object Component | Sort-Object Count -Descending | 
         Info      = @($grp | Where-Object Severity -eq 'Info').Count
         Warning   = @($grp | Where-Object Severity -eq 'Warning').Count
         Error     = @($grp | Where-Object Severity -eq 'Error').Count
+        Success   = @($grp | Where-Object Severity -eq 'Success').Count
     }
 }
 
@@ -303,12 +352,34 @@ if ($appErrors) {
     Write-Host ''
 }
 
+# Suhrn uspesne spracovanych aplikacii
+$appSuccess = $filtered | Where-Object { $_.Severity -eq 'Success' -and $_.ApplicationId } |
+Group-Object ApplicationId |
+Sort-Object Count -Descending
+
+if ($appSuccess) {
+    Write-Host '=== USPESNE NASADENE/SPRACOVANE APLIKACIE (podľa ApplicationId) ===' -ForegroundColor Green
+    foreach ($app in $appSuccess) {
+        $displayName = $appNameMap[$app.Name]
+        if ($displayName) {
+            Write-Host "  $displayName ($($app.Name)) - $($app.Count) uspesnych operacii" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  ApplicationId: $($app.Name) - $($app.Count) uspesnych operacii" -ForegroundColor Green
+        }
+    }
+    Write-Host ''
+}
+
 $totalErrors = @($filtered | Where-Object Severity -eq 'Error').Count
 $totalWarnings = @($filtered | Where-Object Severity -eq 'Warning').Count
+$totalSuccess = @($filtered | Where-Object Severity -eq 'Success').Count
 Write-Host "Celkovo: $($filtered.Count) zaznamov  |  Chyby: " -NoNewline
 Write-Host "$totalErrors" -ForegroundColor Red -NoNewline
 Write-Host "  |  Varovania: " -NoNewline
-Write-Host "$totalWarnings" -ForegroundColor Yellow
+Write-Host "$totalWarnings" -ForegroundColor Yellow -NoNewline
+Write-Host "  |  Uspechy: " -NoNewline
+Write-Host "$totalSuccess" -ForegroundColor Green
 
 if ($SummaryOnly) { exit 0 }
 
@@ -327,14 +398,14 @@ if ($Output -in 'Console', 'All') {
         Write-Host "[$sev] " -NoNewline -ForegroundColor $color
         Write-Host "$comp " -NoNewline -ForegroundColor DarkCyan
         
-        # Ak je ERROR a existuje ApplicationId, zobraz ho
-        if ($entry.Severity -eq 'Error' -and $entry.ApplicationId) {
+        # Ak je ERROR alebo SUCCESS a existuje ApplicationId, zobraz ho
+        if (($entry.Severity -eq 'Error' -or $entry.Severity -eq 'Success') -and $entry.ApplicationId) {
             $displayName = $appNameMap[$entry.ApplicationId]
             if ($displayName) {
-                Write-Host "[$displayName] " -NoNewline -ForegroundColor Red
+                Write-Host "[$displayName] " -NoNewline -ForegroundColor $color
             }
             else {
-                Write-Host "[AppID: $($entry.ApplicationId)] " -NoNewline -ForegroundColor Red
+                Write-Host "[AppID: $($entry.ApplicationId)] " -NoNewline -ForegroundColor $color
             }
         }
         
@@ -374,12 +445,12 @@ if ($Output -in 'Log', 'All') {
     $logLines.Add("LogPath   : $LogPath")
     $logLines.Add("Severity  : $Severity")
     if ($From) { $logLines.Add("From      : $($From.ToString('yyyy-MM-dd HH:mm:ss'))") }
-    if ($To)   { $logLines.Add("To        : $($To.ToString('yyyy-MM-dd HH:mm:ss'))") }
-    $logLines.Add("Zaznamov  : $($filtered.Count)  (Errory: $totalErrors, Varovania: $totalWarnings)")
+    if ($To) { $logLines.Add("To        : $($To.ToString('yyyy-MM-dd HH:mm:ss'))") }
+    $logLines.Add("Zaznamov  : $($filtered.Count)  (Errory: $totalErrors, Varovania: $totalWarnings, Uspechy: $totalSuccess)")
     $logLines.Add("")
     $logLines.Add("----- SUHRN PER KOMPONENT -----")
     foreach ($s in $summary) {
-        $logLines.Add(("{0,-35} Total={1,-6} Info={2,-5} Warn={3,-5} Err={4}" -f $s.Component, $s.Total, $s.Info, $s.Warning, $s.Error))
+        $logLines.Add(("{0,-35} Total={1,-6} Info={2,-5} Warn={3,-5} Err={4,-5} Success={5}" -f $s.Component, $s.Total, $s.Info, $s.Warning, $s.Error, $s.Success))
     }
 
     if ($appErrors) {
@@ -392,6 +463,20 @@ if ($Output -in 'Log', 'All') {
             }
             else {
                 $logLines.Add(("  ApplicationId: {0} - {1} error(ov)" -f $app.Name, $app.Count))
+            }
+        }
+    }
+
+    if ($appSuccess) {
+        $logLines.Add("")
+        $logLines.Add("----- USPESNE NASADENE/SPRACOVANE APLIKACIE -----")
+        foreach ($app in $appSuccess) {
+            $displayName = $appNameMap[$app.Name]
+            if ($displayName) {
+                $logLines.Add(("  {0} ({1}) - {2} uspesnych operacii" -f $displayName, $app.Name, $app.Count))
+            }
+            else {
+                $logLines.Add(("  ApplicationId: {0} - {1} uspesnych operacii" -f $app.Name, $app.Count))
             }
         }
     }
@@ -439,6 +524,7 @@ if ($Output -in 'HTML', 'All') {
         $rowClass = switch ($entry.Severity) {
             'Error' { 'row-error' }
             'Warning' { 'row-warning' }
+            'Success' { 'row-success' }
             default { 'row-info' }
         }
         $msgEsc = [System.Net.WebUtility]::HtmlEncode($entry.Message) -replace "`n", '<br>'
@@ -461,7 +547,7 @@ if ($Output -in 'HTML', 'All') {
     }
 
     $summaryRowsHtml = foreach ($s in $summary) {
-        "<tr><td>$($s.Component)</td><td>$($s.Total)</td><td>$($s.Info)</td><td class='warn'>$($s.Warning)</td><td class='err'>$($s.Error)</td></tr>"
+        "<tr><td>$($s.Component)</td><td>$($s.Total)</td><td>$($s.Info)</td><td class='warn'>$($s.Warning)</td><td class='err'>$($s.Error)</td><td class='succ'>$($s.Success)</td></tr>"
     }
 
     $generatedAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -479,9 +565,11 @@ if ($Output -in 'HTML', 'All') {
   td { padding:4px 10px; border-bottom:1px solid #333; vertical-align:top; }
   .row-error   td { color:#f44747; }
   .row-warning td { color:#dcdcaa; }
+  .row-success td { color:#6a9955; }
   .row-info    td { color:#9cdcfe; }
   .warn { color:#dcdcaa !important; }
   .err  { color:#f44747 !important; }
+  .succ { color:#6a9955 !important; }
   .summary-box { display:flex; gap:20px; margin-bottom:20px; }
   .stat { background:#252526; border:1px solid #3c3c3c; padding:10px 20px; border-radius:4px; }
   .stat .num { font-size:28px; font-weight:bold; }
@@ -497,10 +585,11 @@ if ($Output -in 'HTML', 'All') {
   <div class="stat"><div class="num">$($filtered.Count)</div><div class="lbl">Celkovo</div></div>
   <div class="stat" style="border-color:#f44747"><div class="num" style="color:#f44747">$totalErrors</div><div class="lbl">Chyby</div></div>
   <div class="stat" style="border-color:#dcdcaa"><div class="num" style="color:#dcdcaa">$totalWarnings</div><div class="lbl">Varovania</div></div>
+  <div class="stat" style="border-color:#6a9955"><div class="num" style="color:#6a9955">$totalSuccess</div><div class="lbl">Uspechy</div></div>
 </div>
 <h2>Suhrn per komponent</h2>
 <table>
-<tr><th>Komponent</th><th>Celkovo</th><th>Info</th><th>Varovania</th><th>Chyby</th></tr>
+<tr><th>Komponent</th><th>Celkovo</th><th>Info</th><th>Varovania</th><th>Chyby</th><th>Uspechy</th></tr>
 $($summaryRowsHtml -join "`n")
 </table>
 <h2>Zaznamy ($($filtered.Count))</h2>

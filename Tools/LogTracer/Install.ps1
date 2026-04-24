@@ -94,6 +94,8 @@ try {
         '-NoProfile'
         "-File `"$targetScript`""
         '-Severity Error'
+        '-IncludeSuccessfulInstalls'
+        '-LastHours 24'
         '-Output All'
         "-AppMappingFile `"$targetCsv`""
         "-OutputPath `"$ExportRoot`""

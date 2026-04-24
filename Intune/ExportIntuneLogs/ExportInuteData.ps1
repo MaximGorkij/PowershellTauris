@@ -25,13 +25,13 @@ param(
     [ValidateSet("beta", "v1.0")]
     [string]$ApiVersion = "beta",
     
-    [switch]$GraylogOutput = $true,
+    [bool]$GraylogOutput = $true,
     [string]$GraylogLogFile = "graylog_output.log",
     
     [ValidateRange(1, 20)]
     [int]$JsonDepth = 10,
     
-    [switch]$SimplifyJson = $true,
+    [bool]$SimplifyJson = $true,
     
     [ValidateRange(1, 100)]
     [int]$MaxFileSizeMB = 10,
@@ -39,28 +39,28 @@ param(
     [ValidateRange(1, 365)]
     [int]$KeepFilesDays = 7,
     
-    [switch]$CompressOldFiles = $true,
+    [bool]$CompressOldFiles = $true,
     
     [ValidateRange(1, 1000)]
     [int]$BatchSize = 50,
     
-    [switch]$UseBatching = $true,
-    [switch]$DebugMode = $false,
+    [bool]$UseBatching = $true,
+    [switch]$DebugMode,
     
     [ValidateRange(1, 10)]
     [int]$MaxRetries = 3,
     
-    [switch]$EnablePagination = $true,
-    [switch]$SendSummaryEmail = $false,
+    [bool]$EnablePagination = $true,
+    [switch]$SendSummaryEmail,
     [string]$EmailFrom = "",
     [string]$EmailTo = "",
-    [switch]$CleanOldFiles = $true,
-    [switch]$ValidateJson = $true,
+    [bool]$CleanOldFiles = $true,
+    [bool]$ValidateJson = $true,
     
     [ValidateRange(1, 64)]
     [int]$MaxThreads = [Math]::Min([Environment]::ProcessorCount, 16),
     
-    [switch]$ForcePS7 = $false
+    [switch]$ForcePS7
 )
 
 # -------------------------
@@ -225,7 +225,7 @@ function Compress-BackupFolder {
 # -------------------------
 # File rotation & cleanup
 # -------------------------
-function Rotate-FileIfTooLarge {
+function Invoke-FileRotationIfTooLarge {
     param([string]$FilePath, [int]$MaxMB)
     try {
         if (-not (Test-Path $FilePath)) { return $false }
@@ -276,7 +276,7 @@ function Write-GraylogBatch {
     $messageCount = 0
 
     try {
-        Rotate-FileIfTooLarge -FilePath $graylogFile -MaxMB $MaxFileSizeMB
+        Invoke-FileRotationIfTooLarge -FilePath $graylogFile -MaxMB $MaxFileSizeMB
         Write-DebugLog "Zapisujem Graylog batch ($($BatchData.Count)) pre $DataType"
 
         # Use mutex for thread-safe file writing
@@ -530,7 +530,9 @@ function Export-IntuneData {
             Write-DebugLog "Spustam paralelne spracovanie $($data.Count) poloziek (MaxThreads=$script:MaxThreads)"
 
             $simpleData = $data | ForEach-Object -ThrottleLimit $script:MaxThreads -Parallel {
-                param($item, $ResourceParam, $Depth)
+                $item = $_
+                $ResourceParam = $using:Resource
+                $Depth = $using:script:JsonDepth
 
                 $ErrorActionPreference = 'Stop'
                 try {
@@ -569,7 +571,10 @@ function Export-IntuneData {
                             $simple.policyType = $item.'@odata.type'
                             $simple.version = $item.version
                         }
-                    }
+                        "deviceEnrollmentConfigurations" {
+                            $simple.configurationType = $item.'@odata.type'
+                            $simple.version = $item.version
+                        }
 
                     [PSCustomObject]@{ 
                         Success = $true
@@ -583,7 +588,7 @@ function Export-IntuneData {
                         Data    = $null
                     }
                 }
-            } -ArgumentList $Resource, $script:JsonDepth
+            }
 
             # Filter successful results
             $successfulResults = $simpleData | Where-Object { $_.Success }
