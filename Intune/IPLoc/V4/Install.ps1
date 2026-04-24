@@ -22,8 +22,29 @@
     - Permissions: App Registration s Device.ReadWrite.All (Application permission, admin consent).
     - Bezpecnost: .env je plain text - nepouzivat v produkcii bez sifrovania!
     - Detection rule v Intune: File exists C:\TaurisIT\Log\IPLoc\IPcheck.log.
-    - Install command: powershell.exe -ExecutionPolicy Bypass -File .\Install.ps1
+    - Install command: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File .\Install.ps1
 #>
+
+# ============================================================================
+# AUTOMATICKA DETEKCIA 32-BIT A RESTART AKO 64-BIT (WoW64 FIX)
+# ============================================================================
+# Intune casto spusta skripty v 32-bit PowerShell (WoW64 redirection)
+# To spôsobuje problémy s modulmi a Event Log zdrojmi. Prinutime 64-bit spustenie.
+if ([System.Environment]::Is64BitProcess -eq $false) {
+    # Aktualne sme v 32-bit PowerShell, restartuj ako 64-bit
+    $ps64bit = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (Test-Path $ps64bit) {
+        $scriptPath = $PSCommandPath
+        $invokeArgs = @(
+            "-NoProfile"
+            "-ExecutionPolicy", "Bypass"
+            "-File", $scriptPath
+        )
+        & $ps64bit @invokeArgs
+        exit $LASTEXITCODE
+    }
+}
+# Ak sme sem dosli, sme v 64-bit PowerShell - pokracuj normalne.
 
 # Funkcia na nacitanie .env suboru (bez externych modulov)
 function Import-DotEnv {
@@ -58,6 +79,29 @@ if (-not (Test-Path -Path $LogDir)) {
     $null = New-Item -Path $LogDir -ItemType Directory -Force -ErrorAction SilentlyContinue
 }
 
+# ============================================================================
+# VYTVORENIE EVENT LOG ZDROJA BEZNE (bez závislosti na LogHelper)
+# ============================================================================
+# Toto sa spúšťa vždy, aby sa zaistilo, že Event Log zdroj existuje
+# Ak zlyhá (napr. z bezpečnostných dôvodov), pokračujeme s fallback loganím
+function Ensure-EventLogSource {
+    param (
+        [string]$Source,
+        [string]$LogName = "Application"
+    )
+    
+    try {
+        if (-not ([System.Diagnostics.EventLog]::SourceExists($Source))) {
+            New-EventLog -LogName $LogName -Source $Source -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        # Ignoruj chyby - pokračuj s fallback loganím
+    }
+}
+
+Ensure-EventLogSource -Source $EventSource
+
 # Import LogHelper modulu
 $logHelperPath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper"
 if (Test-Path $logHelperPath) {
@@ -73,6 +117,61 @@ if (Test-Path $logHelperPath) {
 else {
     Write-Host "Upozornenie: LogHelper modul sa nenasiel na $logHelperPath. Používam fallback logging." -ForegroundColor Yellow
     $logHelperAvailable = $false
+}
+
+# ============================================================================
+# FALLBACK LOGGING FUNKCIA (ak LogHelper nie je dostupný)
+# ============================================================================
+# Táto funkcia sa používa v prípade, že LogHelper modul nie je dostupný
+if (-not (Get-Command Write-IntuneLog -ErrorAction SilentlyContinue)) {
+    function Write-IntuneLog {
+        param (
+            [string]$Message,
+            [string]$Level = "INFO",
+            [string]$LogFile,
+            [string]$EventSource
+        )
+        
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $logEntry = "[$timestamp] [$Level] $Message"
+        
+        # Zapíš do textového logu
+        try {
+            Add-Content -Path $LogFile -Value $logEntry -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
+        catch { }
+        
+        # Zapíš do Event Logu ak je zdroj dostupný
+        if (-not [string]::IsNullOrEmpty($EventSource)) {
+            try {
+                if ([System.Diagnostics.EventLog]::SourceExists($EventSource)) {
+                    $eventLog = New-Object System.Diagnostics.EventLog("Application")
+                    $eventLog.Source = $EventSource
+                    $eventType = switch ($Level) {
+                        "ERROR" { "Error" }
+                        "WARNING" { "Warning" }
+                        "SUCCESS" { "Information" }
+                        "OK" { "Information" }
+                        "INFO" { "Information" }
+                        "DEBUG" { "Information" }
+                        default { "Information" }
+                    }
+                    $eventLog.WriteEntry($Message, $eventType, 1000)
+                }
+            }
+            catch { }
+        }
+        
+        # Výstup do konzoly
+        $color = switch ($Level) {
+            "ERROR" { "Red" }
+            "WARNING" { "Yellow" }
+            "SUCCESS" { "Green" }
+            "OK" { "Green" }
+            default { "Gray" }
+        }
+        Write-Host $logEntry -ForegroundColor $color -ErrorAction SilentlyContinue
+    }
 }
 
 # Inicializacia log systemu cez LogHelper
