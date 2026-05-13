@@ -576,152 +576,152 @@ function Export-IntuneData {
                             $simple.version = $item.version
                         }
 
-                    [PSCustomObject]@{ 
-                        Success = $true
-                        Data    = $simple 
-                    }
-                }
-                catch {
-                    [PSCustomObject]@{ 
-                        Success = $false
-                        Error   = "ID: $($item.id) - $($_.Exception.Message)"
-                        Data    = $null
-                    }
-                }
-            }
-
-            # Filter successful results
-            $successfulResults = $simpleData | Where-Object { $_.Success }
-            $failedResults = $simpleData | Where-Object { -not $_.Success }
-
-            if ($failedResults) {
-                Write-Log "Niekoľko poloziek zlyhalo pri paralelnom spracovani ($($failedResults.Count)/$($data.Count))" "WARN"
-                foreach ($failed in $failedResults | Select-Object -First 5) {
-                    Write-DebugLog "Failed item: $($failed.Error)"
-                }
-            }
-
-            $processedData = $successfulResults | ForEach-Object { $_.Data }
-
-            # JSON export
-            try {
-                $jsonFile = Join-Path $TargetDirectory "$FileName.json"
-                $jsonString = $processedData | ConvertTo-Json -Depth $script:JsonDepth -ErrorAction Stop
-
-                if ($ValidateJson) {
-                    try {
-                        $null = $jsonString | ConvertFrom-Json
-                        Write-DebugLog "JSON validacia uspesna pre $FileName"
-                    }
-                    catch {
-                        Write-Log "JSON validacia zlyhala pre $FileName, ale pokracujem v zapise: $($_.Exception.Message)" "WARN"
-                    }
-                }
-
-                $jsonString | Out-File -FilePath $jsonFile -Encoding UTF8 -ErrorAction Stop
-                Write-DebugLog "JSON export uspesny: $jsonFile"
-            }
-            catch {
-                Write-Log "Chyba pri JSON exporte $FileName : $($_.Exception.Message)" "WARN"
-                try {
-                    $jsonString = $processedData | ConvertTo-Json -Depth 3 -Compress
-                    $jsonString | Out-File -FilePath (Join-Path $TargetDirectory "$FileName.json") -Encoding UTF8 -ErrorAction Stop
-                    Write-Log "Fallback JSON export uspesny pre $FileName" "SUCCESS"
-                }
-                catch {
-                    Write-Log "Fallback JSON export tiez zlyhal: $($_.Exception.Message)" "ERROR"
-                    $success = $false
-                }
-            }
-
-            # CSV export
-            try {
-                $csvFile = Join-Path $TargetDirectory "$FileName.csv"
-                $processedData | ForEach-Object { [PSCustomObject]$_ } | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -ErrorAction Stop
-                Write-DebugLog "CSV export uspesny: $csvFile"
-            }
-            catch {
-                Write-Log "Chyba pri CSV exporte $FileName : $($_.Exception.Message)" "WARN"
-            }
-
-            # Graylog export (sequential to avoid file contention)
-            if ($GraylogOutput) {
-                Write-DebugLog "Zaciatok Graylog exportu pre $FileName"
-
-                $batches = @()
-                if ($UseBatching) {
-                    $current = @()
-                    foreach ($i in $processedData) {
-                        $current += $i
-                        if ($current.Count -ge $BatchSize) {
-                            $batches += , @($current)
-                            $current = @()
+                        [PSCustomObject]@ { 
+                            Success = $true
+                            Data = $simple 
                         }
                     }
-                    if ($current.Count -gt 0) { $batches += , @($current) }
-                }
-                else {
-                    foreach ($i in $processedData) { $batches += , @($i) }
+                    catch {
+                        [PSCustomObject]@{ 
+                            Success = $false
+                            Error   = "ID: $($item.id) - $($_.Exception.Message)"
+                            Data    = $null
+                        }
+                    }
                 }
 
-                foreach ($batch in $batches) {
-                    $graylogCount += Write-GraylogBatch -BatchData $batch -DataType $FileName.ToLower()
+                # Filter successful results
+                $successfulResults = $simpleData | Where-Object { $_.Success }
+                $failedResults = $simpleData | Where-Object { -not $_.Success }
+
+                if ($failedResults) {
+                    Write-Log "Niekoľko poloziek zlyhalo pri paralelnom spracovani ($($failedResults.Count)/$($data.Count))" "WARN"
+                    foreach ($failed in $failedResults | Select-Object -First 5) {
+                        Write-DebugLog "Failed item: $($failed.Error)"
+                    }
                 }
 
-                Write-DebugLog "Graylog export dokonceny: $graylogCount sprav"
+                $processedData = $successfulResults | ForEach-Object { $_.Data }
+
+                # JSON export
+                try {
+                    $jsonFile = Join-Path $TargetDirectory "$FileName.json"
+                    $jsonString = $processedData | ConvertTo-Json -Depth $script:JsonDepth -ErrorAction Stop
+
+                    if ($ValidateJson) {
+                        try {
+                            $null = $jsonString | ConvertFrom-Json
+                            Write-DebugLog "JSON validacia uspesna pre $FileName"
+                        }
+                        catch {
+                            Write-Log "JSON validacia zlyhala pre $FileName, ale pokracujem v zapise: $($_.Exception.Message)" "WARN"
+                        }
+                    }
+
+                    $jsonString | Out-File -FilePath $jsonFile -Encoding UTF8 -ErrorAction Stop
+                    Write-DebugLog "JSON export uspesny: $jsonFile"
+                }
+                catch {
+                    Write-Log "Chyba pri JSON exporte $FileName : $($_.Exception.Message)" "WARN"
+                    try {
+                        $jsonString = $processedData | ConvertTo-Json -Depth 3 -Compress
+                        $jsonString | Out-File -FilePath (Join-Path $TargetDirectory "$FileName.json") -Encoding UTF8 -ErrorAction Stop
+                        Write-Log "Fallback JSON export uspesny pre $FileName" "SUCCESS"
+                    }
+                    catch {
+                        Write-Log "Fallback JSON export tiez zlyhal: $($_.Exception.Message)" "ERROR"
+                        $success = $false
+                    }
+                }
+
+                # CSV export
+                try {
+                    $csvFile = Join-Path $TargetDirectory "$FileName.csv"
+                    $processedData | ForEach-Object { [PSCustomObject]$_ } | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -ErrorAction Stop
+                    Write-DebugLog "CSV export uspesny: $csvFile"
+                }
+                catch {
+                    Write-Log "Chyba pri CSV exporte $FileName : $($_.Exception.Message)" "WARN"
+                }
+
+                # Graylog export (sequential to avoid file contention)
+                if ($GraylogOutput) {
+                    Write-DebugLog "Zaciatok Graylog exportu pre $FileName"
+
+                    $batches = @()
+                    if ($UseBatching) {
+                        $current = @()
+                        foreach ($i in $processedData) {
+                            $current += $i
+                            if ($current.Count -ge $BatchSize) {
+                                $batches += , @($current)
+                                $current = @()
+                            }
+                        }
+                        if ($current.Count -gt 0) { $batches += , @($current) }
+                    }
+                    else {
+                        foreach ($i in $processedData) { $batches += , @($i) }
+                    }
+
+                    foreach ($batch in $batches) {
+                        $graylogCount += Write-GraylogBatch -BatchData $batch -DataType $FileName.ToLower()
+                    }
+
+                    Write-DebugLog "Graylog export dokonceny: $graylogCount sprav"
+                }
+
+                Write-Log "Udaje $FileName exportovane ($recordCount zaznamov, $graylogCount Graylog sprav)" "SUCCESS"
             }
-
-            Write-Log "Udaje $FileName exportovane ($recordCount zaznamov, $graylogCount Graylog sprav)" "SUCCESS"
+            else {
+                Write-Log "Ziadne udaje pre $FileName" "WARN"
+                try {
+                    $jsonFile = Join-Path $TargetDirectory "$FileName.json"
+                    "[]" | Out-File -FilePath $jsonFile -Encoding UTF8 -ErrorAction Stop
+                    $csvFile = Join-Path $TargetDirectory "$FileName.csv"
+                    "" | Out-File -FilePath $csvFile -Encoding UTF8 -ErrorAction Stop
+                    Write-DebugLog "Prazdne subory vytvorene pre $FileName"
+                }
+                catch {
+                    Write-Log "Chyba pri vytvarani prazdnych suborov pre $FileName $($_.Exception.Message)" "WARN"
+                }
+            }
         }
-        else {
-            Write-Log "Ziadne udaje pre $FileName" "WARN"
-            try {
-                $jsonFile = Join-Path $TargetDirectory "$FileName.json"
-                "[]" | Out-File -FilePath $jsonFile -Encoding UTF8 -ErrorAction Stop
-                $csvFile = Join-Path $TargetDirectory "$FileName.csv"
-                "" | Out-File -FilePath $csvFile -Encoding UTF8 -ErrorAction Stop
-                Write-DebugLog "Prazdne subory vytvorene pre $FileName"
-            }
-            catch {
-                Write-Log "Chyba pri vytvarani prazdnych suborov pre $FileName $($_.Exception.Message)" "WARN"
-            }
+        catch {
+            Write-Log "Chyba pri exporte $FileName : $($_.Exception.Message)" "ERROR"
+            Write-DebugLog "Detail chyby: $($_.Exception | Format-List * -Force | Out-String)"
+            $success = $false
+        }
+
+        Write-DebugLog "Export $FileName - Success: $success, Records: $recordCount, Graylog: $graylogCount"
+
+        return @{
+            Success      = $success
+            RecordCount  = $recordCount
+            GraylogCount = $graylogCount
         }
     }
-    catch {
-        Write-Log "Chyba pri exporte $FileName : $($_.Exception.Message)" "ERROR"
-        Write-DebugLog "Detail chyby: $($_.Exception | Format-List * -Force | Out-String)"
-        $success = $false
-    }
 
-    Write-DebugLog "Export $FileName - Success: $success, Records: $recordCount, Graylog: $graylogCount"
+    # -------------------------
+    # MS Graph email
+    # -------------------------
+    function Send-GraphEmail {
+        param([array]$Results, [timespan]$Duration)
 
-    return @{
-        Success      = $success
-        RecordCount  = $recordCount
-        GraylogCount = $graylogCount
-    }
-}
+        if (-not $SendSummaryEmail -or -not $EmailFrom -or -not $EmailTo) {
+            Write-DebugLog "Email notifikacia vypnuta alebo chybaju povinne parametre"
+            return
+        }
 
-# -------------------------
-# MS Graph email
-# -------------------------
-function Send-GraphEmail {
-    param([array]$Results, [timespan]$Duration)
+        try {
+            $successCount = ($Results | Where-Object { $_.Success }).Count
+            $totalCount = $Results.Count
+            $totalRecords = ($Results | Measure-Object -Property RecordCount -Sum).Sum
+            $totalGraylog = ($Results | Measure-Object -Property GraylogCount -Sum).Sum
 
-    if (-not $SendSummaryEmail -or -not $EmailFrom -or -not $EmailTo) {
-        Write-DebugLog "Email notifikacia vypnuta alebo chybaju povinne parametre"
-        return
-    }
+            $subject = "Intune Export Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
-    try {
-        $successCount = ($Results | Where-Object { $_.Success }).Count
-        $totalCount = $Results.Count
-        $totalRecords = ($Results | Measure-Object -Property RecordCount -Sum).Sum
-        $totalGraylog = ($Results | Measure-Object -Property GraylogCount -Sum).Sum
-
-        $subject = "Intune Export Summary - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
-
-        $htmlBody = @"
+            $htmlBody = @"
 <html><body>
 <h2>📊 Intune Data Export Summary</h2>
 <p><strong>Overall Status:</strong> $successCount/$totalCount exports successful</p>
@@ -735,317 +735,317 @@ function Send-GraphEmail {
 <tr><th>Resource</th><th>Status</th><th>Records</th><th>Graylog</th></tr>
 "@
 
-        foreach ($r in $Results) {
-            $statusText = if ($r.Success) { "✅ SUCCESS" } else { "❌ FAILED" }
-            $htmlBody += "<tr><td>$($r.FileName)</td><td>$statusText</td><td>$($r.RecordCount)</td><td>$($r.GraylogCount)</td></tr>"
-        }
-
-        $htmlBody += "</table><p style='font-size:12px;color:gray;'>Generated by Intune Export Script v2.2.0 (Fixed)</p></body></html>"
-
-        $emailMessage = @{
-            message = @{
-                subject      = $subject
-                body         = @{
-                    contentType = "HTML"
-                    content     = $htmlBody
-                }
-                toRecipients = @(
-                    @{
-                        emailAddress = @{ address = $EmailTo }
-                    }
-                )
+            foreach ($r in $Results) {
+                $statusText = if ($r.Success) { "✅ SUCCESS" } else { "❌ FAILED" }
+                $htmlBody += "<tr><td>$($r.FileName)</td><td>$statusText</td><td>$($r.RecordCount)</td><td>$($r.GraylogCount)</td></tr>"
             }
+
+            $htmlBody += "</table><p style='font-size:12px;color:gray;'>Generated by Intune Export Script v2.2.0 (Fixed)</p></body></html>"
+
+            $emailMessage = @{
+                message = @{
+                    subject      = $subject
+                    body         = @{
+                        contentType = "HTML"
+                        content     = $htmlBody
+                    }
+                    toRecipients = @(
+                        @{
+                            emailAddress = @{ address = $EmailTo }
+                        }
+                    )
+                }
+            }
+
+            $emailJson = $emailMessage | ConvertTo-Json -Depth 5
+
+            Write-Log "Odosielam email summary cez MS Graph..." "INFO"
+            Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/users/$EmailFrom/sendMail" -Body $emailJson -ErrorAction Stop
+            Write-Log "Email summary uspesne odoslany cez MS Graph" "SUCCESS"
         }
+        catch {
+            Write-Log "Chyba pri odosielani emailu cez MS Graph: $($_.Exception.Message)" "ERROR"
+            Write-DebugLog "Detail chyby: $($_.Exception | Format-List * -Force | Out-String)"
+        }
+    }
 
-        $emailJson = $emailMessage | ConvertTo-Json -Depth 5
+    # -------------------------
+    # Main execution
+    # -------------------------
+    Write-Output "=========================================="
+    Write-Output "INTUNE DATA EXPORT - OPRAVENA VERZIA (v2.2.0)"
+    Write-Output "=========================================="
 
-        Write-Log "Odosielam email summary cez MS Graph..." "INFO"
-        Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/users/$EmailFrom/sendMail" -Body $emailJson -ErrorAction Stop
-        Write-Log "Email summary uspesne odoslany cez MS Graph" "SUCCESS"
+    if (-not (Initialize-Logging)) {
+        Write-Output "CRITICAL: Nepodarilo sa inicializovat logovanie. Koncim."
+        exit 1
+    }
+
+    Write-Log "==========================================" "INFO"
+    Write-Log "INTUNE DATA EXPORT - OPRAVENA VERZIA (v2.2.0)" "INFO"
+    Write-Log "==========================================" "INFO"
+
+    # Initialize mutexes for thread safety
+    try {
+        $script:GraylogMutex = New-Object System.Threading.Mutex($false, "IntuneGraylogMutex")
+        Write-DebugLog "Graylog mutex inicializovany"
     }
     catch {
-        Write-Log "Chyba pri odosielani emailu cez MS Graph: $($_.Exception.Message)" "ERROR"
-        Write-DebugLog "Detail chyby: $($_.Exception | Format-List * -Force | Out-String)"
+        Write-Log "Nepodarilo sa vytvorit Graylog mutex: $($_.Exception.Message)" "WARN"
+        $GraylogOutput = $false
     }
-}
 
-# -------------------------
-# Main execution
-# -------------------------
-Write-Output "=========================================="
-Write-Output "INTUNE DATA EXPORT - OPRAVENA VERZIA (v2.2.0)"
-Write-Output "=========================================="
+    # Prepare directories
+    $today = Get-Date -Format "yyyyMMdd"
+    $targetDir = Join-Path $ExportPath $today
 
-if (-not (Initialize-Logging)) {
-    Write-Output "CRITICAL: Nepodarilo sa inicializovat logovanie. Koncim."
-    exit 1
-}
-
-Write-Log "==========================================" "INFO"
-Write-Log "INTUNE DATA EXPORT - OPRAVENA VERZIA (v2.2.0)" "INFO"
-Write-Log "==========================================" "INFO"
-
-# Initialize mutexes for thread safety
-try {
-    $script:GraylogMutex = New-Object System.Threading.Mutex($false, "IntuneGraylogMutex")
-    Write-DebugLog "Graylog mutex inicializovany"
-}
-catch {
-    Write-Log "Nepodarilo sa vytvorit Graylog mutex: $($_.Exception.Message)" "WARN"
-    $GraylogOutput = $false
-}
-
-# Prepare directories
-$today = Get-Date -Format "yyyyMMdd"
-$targetDir = Join-Path $ExportPath $today
-
-try {
-    if (-not (Test-Path $ExportPath)) { 
-        New-Item -ItemType Directory -Path $ExportPath -Force | Out-Null
-        Write-Log "Hlavny adresar vytvoreny: $ExportPath" "SUCCESS" 
-    }
-    if (-not (Test-Path $targetDir)) { 
-        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-        Write-Log "Denny adresar vytvoreny: $targetDir" "SUCCESS" 
-    }
-    if (-not (Test-Path $BackupRoot)) { 
-        New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
-        Write-Log "Backup root vytvoreny: $BackupRoot" "SUCCESS" 
-    }
-}
-catch {
-    Write-Log "Nepodarilo sa vytvorit potrebne adresare: $($_.Exception.Message)" "ERROR"
-    exit 1
-}
-
-# Backup existing JSONs in today's folder (if any)
-$backupDir = Backup-OldJsons -SourceDir $targetDir -BackupRootDir $BackupRoot
-if ($backupDir) {
-    $zip = Compress-BackupFolder -FolderPath $backupDir
-    if ($zip) { Write-Log "Zaloha JSON suborov dokoncená: $zip" "INFO" }
-}
-
-# Clean old backups & logs
-if ($CleanOldFiles) {
-    Write-Log "Cistenie starych suborov starsich ako $KeepFilesDays dni..." "INFO"
-    Remove-OldFiles -Path $ExportPath -Days $KeepFilesDays
-    Remove-OldFiles -Path $BackupRoot -Days $KeepFilesDays
-}
-
-# Prepare Graylog file if enabled
-if ($GraylogOutput) {
-    $graylogFilePath = Join-Path $ExportPath $GraylogLogFile
     try {
-        "" | Out-File -FilePath $graylogFilePath -Encoding UTF8 -ErrorAction Stop
-        Write-Log "Graylog output file pripraveny: $graylogFilePath" "SUCCESS"
+        if (-not (Test-Path $ExportPath)) { 
+            New-Item -ItemType Directory -Path $ExportPath -Force | Out-Null
+            Write-Log "Hlavny adresar vytvoreny: $ExportPath" "SUCCESS" 
+        }
+        if (-not (Test-Path $targetDir)) { 
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            Write-Log "Denny adresar vytvoreny: $targetDir" "SUCCESS" 
+        }
+        if (-not (Test-Path $BackupRoot)) { 
+            New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
+            Write-Log "Backup root vytvoreny: $BackupRoot" "SUCCESS" 
+        }
+    }
+    catch {
+        Write-Log "Nepodarilo sa vytvorit potrebne adresare: $($_.Exception.Message)" "ERROR"
+        exit 1
+    }
 
-        if (-not (Test-GraylogFile -FilePath $graylogFilePath)) {
-            Write-Log "Graylog file nie je zapisovatelny, vypinam Graylog output" "ERROR"
+    # Backup existing JSONs in today's folder (if any)
+    $backupDir = Backup-OldJsons -SourceDir $targetDir -BackupRootDir $BackupRoot
+    if ($backupDir) {
+        $zip = Compress-BackupFolder -FolderPath $backupDir
+        if ($zip) { Write-Log "Zaloha JSON suborov dokoncená: $zip" "INFO" }
+    }
+
+    # Clean old backups & logs
+    if ($CleanOldFiles) {
+        Write-Log "Cistenie starych suborov starsich ako $KeepFilesDays dni..." "INFO"
+        Remove-OldFiles -Path $ExportPath -Days $KeepFilesDays
+        Remove-OldFiles -Path $BackupRoot -Days $KeepFilesDays
+    }
+
+    # Prepare Graylog file if enabled
+    if ($GraylogOutput) {
+        $graylogFilePath = Join-Path $ExportPath $GraylogLogFile
+        try {
+            "" | Out-File -FilePath $graylogFilePath -Encoding UTF8 -ErrorAction Stop
+            Write-Log "Graylog output file pripraveny: $graylogFilePath" "SUCCESS"
+
+            if (-not (Test-GraylogFile -FilePath $graylogFilePath)) {
+                Write-Log "Graylog file nie je zapisovatelny, vypinam Graylog output" "ERROR"
+                $GraylogOutput = $false
+            }
+        }
+        catch {
+            Write-Log "Nepodarilo sa vytvorit Graylog output file: $($_.Exception.Message)" "ERROR"
             $GraylogOutput = $false
         }
     }
-    catch {
-        Write-Log "Nepodarilo sa vytvorit Graylog output file: $($_.Exception.Message)" "ERROR"
-        $GraylogOutput = $false
+
+    # Connect to Graph
+    try {
+        Write-Log "Prihlasujem sa do MS Graph..." "INFO"
+
+        $scopes = @(
+            "DeviceManagementApps.Read.All",
+            "DeviceManagementConfiguration.Read.All",
+            "DeviceManagementManagedDevices.Read.All",
+            "DeviceManagementRBAC.Read.All",
+            "DeviceManagementServiceConfig.Read.All",
+            "Reports.Read.All",
+            "Mail.Send"
+        )
+
+        Connect-MgGraph -Scopes $scopes -ErrorAction Stop
+
+        $context = Get-MgContext
+        Write-Log "Uspesne prihlaseny ako: $($context.Account)" "SUCCESS"
+        Write-DebugLog "Tenant ID: $($context.TenantId)"
+        Write-DebugLog "Scopes: $($context.Scopes -join ', ')"
+
+        if ($GraylogOutput) {
+            Write-GraylogBatch -BatchData @(@{
+                    account   = $context.Account
+                    tenant_id = $context.TenantId
+                    scopes    = ($context.Scopes -join ",")
+                    message   = "Authentication successful"
+                }) -DataType "authentication" -Level "6"
+        }
     }
-}
+    catch {
+        Write-Log "Chyba pri prihlasovani: $($_.Exception.Message)" "ERROR"
+        exit 1
+    }
 
-# Connect to Graph
-try {
-    Write-Log "Prihlasujem sa do MS Graph..." "INFO"
+    # -------------------------
+    # Execute exports
+    # -------------------------
+    $exportResults = @()
+    $startTime = Get-Date
+    Write-Log "Zacinam export dat z Intune..." "INFO"
 
-    $scopes = @(
-        "DeviceManagementApps.Read.All",
-        "DeviceManagementConfiguration.Read.All",
-        "DeviceManagementManagedDevices.Read.All",
-        "DeviceManagementRBAC.Read.All",
-        "DeviceManagementServiceConfig.Read.All",
-        "Reports.Read.All",
-        "Mail.Send"
-    )
+    # Devices
+    Write-Log "=== EXPORT ZARIADENI ===" "INFO"
+    $devicesResult = Export-IntuneData -Resource "managedDevices" -FileName "Devices" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "managedDevices"
+        FileName     = "Devices"
+        Success      = $devicesResult.Success
+        RecordCount  = $devicesResult.RecordCount
+        GraylogCount = $devicesResult.GraylogCount
+    }
 
-    Connect-MgGraph -Scopes $scopes -ErrorAction Stop
+    # Apps
+    Write-Log "=== EXPORT APLIKACII ===" "INFO"
+    $appsResult = Export-IntuneData -Resource "mobileApps" -FileName "MobileApps" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "mobileApps"
+        FileName     = "MobileApps"
+        Success      = $appsResult.Success
+        RecordCount  = $appsResult.RecordCount
+        GraylogCount = $appsResult.GraylogCount
+    }
 
-    $context = Get-MgContext
-    Write-Log "Uspesne prihlaseny ako: $($context.Account)" "SUCCESS"
-    Write-DebugLog "Tenant ID: $($context.TenantId)"
-    Write-DebugLog "Scopes: $($context.Scopes -join ', ')"
+    # Compliance policies
+    Write-Log "=== EXPORT COMPLIANCE POLICIES ===" "INFO"
+    $complianceResult = Export-IntuneData -Resource "deviceCompliancePolicies" -FileName "CompliancePolicies" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "deviceCompliancePolicies"
+        FileName     = "CompliancePolicies"
+        Success      = $complianceResult.Success
+        RecordCount  = $complianceResult.RecordCount
+        GraylogCount = $complianceResult.GraylogCount
+    }
+
+    # Device configurations
+    Write-Log "=== EXPORT KONFIGURACNYCH PROFILOV ===" "INFO"
+    $configsResult = Export-IntuneData -Resource "deviceConfigurations" -FileName "DeviceConfigurations" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "deviceConfigurations"
+        FileName     = "DeviceConfigurations"
+        Success      = $configsResult.Success
+        RecordCount  = $configsResult.RecordCount
+        GraylogCount = $configsResult.GraylogCount
+    }
+
+    # App protection policies
+    Write-Log "=== EXPORT APP PROTECTION POLICIES ===" "INFO"
+    $appProtectionResult = Export-IntuneData -Resource "managedAppPolicies" -FileName "AppProtectionPolicies" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "managedAppPolicies"
+        FileName     = "AppProtectionPolicies"
+        Success      = $appProtectionResult.Success
+        RecordCount  = $appProtectionResult.RecordCount
+        GraylogCount = $appProtectionResult.GraylogCount
+    }
+
+    # Enrollment configurations
+    Write-Log "=== EXPORT ENROLLMENT CONFIGURATIONS ===" "INFO"
+    $enrollmentResult = Export-IntuneData -Resource "deviceEnrollmentConfigurations" -FileName "EnrollmentConfigurations" -TargetDirectory $targetDir
+    $exportResults += [PSCustomObject]@{
+        Resource     = "deviceEnrollmentConfigurations"
+        FileName     = "EnrollmentConfigurations"
+        Success      = $enrollmentResult.Success
+        RecordCount  = $enrollmentResult.RecordCount
+        GraylogCount = $enrollmentResult.GraylogCount
+    }
+
+    # -------------------------
+    # Summary
+    # -------------------------
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+
+    Write-Log ("=" * 70) "INFO"
+    Write-Log "EXPORT DOKONCENY - VYSLEDKY" "INFO"
+    Write-Log ("=" * 70) "INFO"
+
+    $successCount = 0
+    $totalCount = $exportResults.Count
+    $totalRecords = ($exportResults | Measure-Object -Property RecordCount -Sum).Sum
+    $totalGraylog = ($exportResults | Measure-Object -Property GraylogCount -Sum).Sum
+
+    foreach ($result in $exportResults) {
+        if ($result.Success) {
+            $status = "[OK]   "
+            Write-Log "$status | $($result.FileName.PadRight(30)) | $($result.RecordCount.ToString().PadLeft(5)) zaznamov | $($result.GraylogCount.ToString().PadLeft(5)) Graylog sprav" "SUCCESS"
+            $successCount++
+        }
+        else {
+            $status = "[CHYBA]"
+            Write-Log "$status | $($result.FileName.PadRight(30)) | $($result.RecordCount.ToString().PadLeft(5)) zaznamov | $($result.GraylogCount.ToString().PadLeft(5)) Graylog sprav" "ERROR"
+        }
+    }
+
+    Write-Log ("-" * 70) "INFO"
+    Write-Log "Celkovo uspesnych: $successCount/$totalCount" "INFO"
+    Write-Log "Celkovy pocet zaznamov: $totalRecords" "INFO"
+    Write-Log "Celkovy pocet Graylog sprav: $totalGraylog" "INFO"
+    Write-Log "Trvanie: $($duration.ToString('hh\:mm\:ss'))" "INFO"
+    Write-Log "Data ulozene v: $targetDir" "INFO"
 
     if ($GraylogOutput) {
-        Write-GraylogBatch -BatchData @(@{
-                account   = $context.Account
-                tenant_id = $context.TenantId
-                scopes    = ($context.Scopes -join ",")
-                message   = "Authentication successful"
-            }) -DataType "authentication" -Level "6"
+        $graylogFile = Join-Path $ExportPath $GraylogLogFile
+        if (Test-Path $graylogFile) {
+            $fileSize = [math]::Round((Get-Item $graylogFile).Length / 1KB, 2)
+            Write-Log "Graylog output: $graylogFile ($fileSize KB)" "INFO"
+        }
     }
-}
-catch {
-    Write-Log "Chyba pri prihlasovani: $($_.Exception.Message)" "ERROR"
-    exit 1
-}
 
-# -------------------------
-# Execute exports
-# -------------------------
-$exportResults = @()
-$startTime = Get-Date
-Write-Log "Zacinam export dat z Intune..." "INFO"
+    Write-Log ("=" * 70) "INFO"
 
-# Devices
-Write-Log "=== EXPORT ZARIADENI ===" "INFO"
-$devicesResult = Export-IntuneData -Resource "managedDevices" -FileName "Devices" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "managedDevices"
-    FileName     = "Devices"
-    Success      = $devicesResult.Success
-    RecordCount  = $devicesResult.RecordCount
-    GraylogCount = $devicesResult.GraylogCount
-}
+    # Send email via Graph if requested
+    if ($SendSummaryEmail) {
+        Write-Log "Odosielam email summary cez MS Graph..." "INFO"
+        Send-GraphEmail -Results $exportResults -Duration $duration
+    }
 
-# Apps
-Write-Log "=== EXPORT APLIKACII ===" "INFO"
-$appsResult = Export-IntuneData -Resource "mobileApps" -FileName "MobileApps" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "mobileApps"
-    FileName     = "MobileApps"
-    Success      = $appsResult.Success
-    RecordCount  = $appsResult.RecordCount
-    GraylogCount = $appsResult.GraylogCount
-}
+    # Disconnect
+    try {
+        Disconnect-MgGraph -ErrorAction SilentlyContinue
+        Write-Log "Odhlasene z Microsoft Graph." "INFO"
+    }
+    catch {
+        Write-Log "Poznamka: Nepodarilo sa odhlasit z Graph: $($_.Exception.Message)" "WARN"
+    }
 
-# Compliance policies
-Write-Log "=== EXPORT COMPLIANCE POLICIES ===" "INFO"
-$complianceResult = Export-IntuneData -Resource "deviceCompliancePolicies" -FileName "CompliancePolicies" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "deviceCompliancePolicies"
-    FileName     = "CompliancePolicies"
-    Success      = $complianceResult.Success
-    RecordCount  = $complianceResult.RecordCount
-    GraylogCount = $complianceResult.GraylogCount
-}
-
-# Device configurations
-Write-Log "=== EXPORT KONFIGURACNYCH PROFILOV ===" "INFO"
-$configsResult = Export-IntuneData -Resource "deviceConfigurations" -FileName "DeviceConfigurations" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "deviceConfigurations"
-    FileName     = "DeviceConfigurations"
-    Success      = $configsResult.Success
-    RecordCount  = $configsResult.RecordCount
-    GraylogCount = $configsResult.GraylogCount
-}
-
-# App protection policies
-Write-Log "=== EXPORT APP PROTECTION POLICIES ===" "INFO"
-$appProtectionResult = Export-IntuneData -Resource "managedAppPolicies" -FileName "AppProtectionPolicies" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "managedAppPolicies"
-    FileName     = "AppProtectionPolicies"
-    Success      = $appProtectionResult.Success
-    RecordCount  = $appProtectionResult.RecordCount
-    GraylogCount = $appProtectionResult.GraylogCount
-}
-
-# Enrollment configurations
-Write-Log "=== EXPORT ENROLLMENT CONFIGURATIONS ===" "INFO"
-$enrollmentResult = Export-IntuneData -Resource "deviceEnrollmentConfigurations" -FileName "EnrollmentConfigurations" -TargetDirectory $targetDir
-$exportResults += [PSCustomObject]@{
-    Resource     = "deviceEnrollmentConfigurations"
-    FileName     = "EnrollmentConfigurations"
-    Success      = $enrollmentResult.Success
-    RecordCount  = $enrollmentResult.RecordCount
-    GraylogCount = $enrollmentResult.GraylogCount
-}
-
-# -------------------------
-# Summary
-# -------------------------
-$endTime = Get-Date
-$duration = $endTime - $startTime
-
-Write-Log ("=" * 70) "INFO"
-Write-Log "EXPORT DOKONCENY - VYSLEDKY" "INFO"
-Write-Log ("=" * 70) "INFO"
-
-$successCount = 0
-$totalCount = $exportResults.Count
-$totalRecords = ($exportResults | Measure-Object -Property RecordCount -Sum).Sum
-$totalGraylog = ($exportResults | Measure-Object -Property GraylogCount -Sum).Sum
-
-foreach ($result in $exportResults) {
-    if ($result.Success) {
-        $status = "[OK]   "
-        Write-Log "$status | $($result.FileName.PadRight(30)) | $($result.RecordCount.ToString().PadLeft(5)) zaznamov | $($result.GraylogCount.ToString().PadLeft(5)) Graylog sprav" "SUCCESS"
-        $successCount++
+    # Determine exit code and log final status
+    $exitCode = 0
+    if ($successCount -eq 0) {
+        Write-Log "VSETKY EXPORTY ZLYHALI!" "ERROR"
+        $exitCode = 1
+    }
+    elseif ($successCount -lt $totalCount) {
+        Write-Log "Niektore exporty zlyhali" "WARN"
+        $exitCode = 2
     }
     else {
-        $status = "[CHYBA]"
-        Write-Log "$status | $($result.FileName.PadRight(30)) | $($result.RecordCount.ToString().PadLeft(5)) zaznamov | $($result.GraylogCount.ToString().PadLeft(5)) Graylog sprav" "ERROR"
+        Write-Log "Vsetky exporty uspesne dokoncene" "SUCCESS"
+        $exitCode = 0
     }
-}
 
-Write-Log ("-" * 70) "INFO"
-Write-Log "Celkovo uspesnych: $successCount/$totalCount" "INFO"
-Write-Log "Celkovy pocet zaznamov: $totalRecords" "INFO"
-Write-Log "Celkovy pocet Graylog sprav: $totalGraylog" "INFO"
-Write-Log "Trvanie: $($duration.ToString('hh\:mm\:ss'))" "INFO"
-Write-Log "Data ulozene v: $targetDir" "INFO"
-
-if ($GraylogOutput) {
-    $graylogFile = Join-Path $ExportPath $GraylogLogFile
-    if (Test-Path $graylogFile) {
-        $fileSize = [math]::Round((Get-Item $graylogFile).Length / 1KB, 2)
-        Write-Log "Graylog output: $graylogFile ($fileSize KB)" "INFO"
+    # Cleanup mutexes AFTER all logging is done
+    try {
+        if ($null -ne $script:GraylogMutex) {
+            $script:GraylogMutex.Close()
+            $script:GraylogMutex.Dispose()
+        }
+        if ($null -ne $script:LogMutex) {
+            $script:LogMutex.Close()
+            $script:LogMutex.Dispose()
+        }
     }
-}
-
-Write-Log ("=" * 70) "INFO"
-
-# Send email via Graph if requested
-if ($SendSummaryEmail) {
-    Write-Log "Odosielam email summary cez MS Graph..." "INFO"
-    Send-GraphEmail -Results $exportResults -Duration $duration
-}
-
-# Disconnect
-try {
-    Disconnect-MgGraph -ErrorAction SilentlyContinue
-    Write-Log "Odhlasene z Microsoft Graph." "INFO"
-}
-catch {
-    Write-Log "Poznamka: Nepodarilo sa odhlasit z Graph: $($_.Exception.Message)" "WARN"
-}
-
-# Determine exit code and log final status
-$exitCode = 0
-if ($successCount -eq 0) {
-    Write-Log "VSETKY EXPORTY ZLYHALI!" "ERROR"
-    $exitCode = 1
-}
-elseif ($successCount -lt $totalCount) {
-    Write-Log "Niektore exporty zlyhali" "WARN"
-    $exitCode = 2
-}
-else {
-    Write-Log "Vsetky exporty uspesne dokoncene" "SUCCESS"
-    $exitCode = 0
-}
-
-# Cleanup mutexes AFTER all logging is done
-try {
-    if ($null -ne $script:GraylogMutex) {
-        $script:GraylogMutex.Close()
-        $script:GraylogMutex.Dispose()
+    catch {
+        # Don't use Write-Log here as mutex might be disposed
+        Write-Output "Poznámka: Chyba pri cleanup mutexov: $($_.Exception.Message)"
     }
-    if ($null -ne $script:LogMutex) {
-        $script:LogMutex.Close()
-        $script:LogMutex.Dispose()
-    }
-}
-catch {
-    # Don't use Write-Log here as mutex might be disposed
-    Write-Output "Poznámka: Chyba pri cleanup mutexov: $($_.Exception.Message)"
-}
 
-exit $exitCode
+    exit $exitCode
