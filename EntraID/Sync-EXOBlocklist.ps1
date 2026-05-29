@@ -315,3 +315,4 @@ try {
     try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue } catch {}
     try { Disconnect-MgGraph -ErrorAction SilentlyContinue } catch {}
     Log "=== Koniec synchronizacie ==="
+}
