@@ -1,0 +1,55 @@
+
+================================================================================
+SCRIPT STARTED: 2025-10-27 08:34:07
+Version: 3.5 | Parameters: AuthFile=.\GraphAuth.xml, BatchSize=100, ExcludeSharedMailboxes=True
+================================================================================
+[2025-10-27 08:34:07] [INFO] === Starting Entra Users Export v3.5 ===
+[2025-10-27 08:34:07] [INFO] Checking required PowerShell modules...
+[2025-10-27 08:34:08] [INFO] Imported module: Microsoft.Graph.Authentication
+[2025-10-27 08:34:10] [INFO] Imported module: Microsoft.Graph.Identity.DirectoryManagement
+[2025-10-27 08:34:12] [INFO] Imported module: Microsoft.Graph.Users
+[2025-10-27 08:34:13] [INFO] Imported module: Microsoft.Graph.Reports
+[2025-10-27 08:34:14] [INFO] Imported module: Microsoft.Graph.Mail
+[2025-10-27 08:34:14] [INFO] Loading authentication credentials from: .\GraphAuth.xml
+[2025-10-27 08:34:14] [SUCCESS] Successfully loaded authentication credentials
+[2025-10-27 08:34:14] [INFO] Detected Microsoft.Graph.Authentication version: 2.30.0
+[2025-10-27 08:34:14] [INFO] Disconnecting existing Graph sessions...
+[2025-10-27 08:34:14] [INFO] Connecting to Microsoft Graph (App Registration)...
+[2025-10-27 08:34:14] [INFO] Using most compatible connection method...
+[2025-10-27 08:34:14] [INFO] Attempting connection with basic parameters...
+[2025-10-27 08:34:14] [WARNING] Basic parameters method failed: Cannot bind parameter 'ClientSecretCredential'. Cannot convert the value of type "System.String" to type "System.Management.Automation.PSCredential".
+[2025-10-27 08:34:14] [INFO] Trying credential object method...
+[2025-10-27 08:34:26] [SUCCESS] Successfully connected using credential object method
+[2025-10-27 08:34:26] [SUCCESS] Successfully connected to Microsoft Graph. Tenant: ebf9edb5-a5f7-4d70-9a59-501865f222ee, Scopes: Directory.Read.All, User.Read.All, Mail.Send, AuditLog.Read.All
+[2025-10-27 08:34:26] [INFO] Loading Entra ID users (Batch Size: 100)...
+[2025-10-27 08:34:26] [INFO] Attempting to load users with basic properties...
+[2025-10-27 08:34:30] [SUCCESS] Successfully loaded 985 users from Entra ID with basic properties
+[2025-10-27 08:34:30] [INFO] Loading extended properties for users...
+[2025-10-27 08:38:15] [SUCCESS] Successfully loaded extended properties for 985 users
+[2025-10-27 08:38:15] [INFO] Loading sign-in data (last 90 days)...
+[2025-10-27 08:53:24] [SUCCESS] Mapped 403 users with recent sign-in activity
+[2025-10-27 08:53:24] [INFO] Processing users and filtering data...
+[2025-10-27 08:53:24] [INFO] User processing completed: 603 users exported, 382 shared mailboxes skipped
+[2025-10-27 08:53:24] [INFO] Exporting data to CSV file...
+[2025-10-27 08:53:24] [SUCCESS] Data successfully exported to: D:\findrik\PowerShell\EntraID\ExportEntraUsers\EntraUsers_20251027_083407.csv
+[2025-10-27 08:53:24] [INFO] Preparing to send email notification with CSV attachment...
+[2025-10-27 08:53:24] [INFO] Graph connection verified, preparing email...
+[2025-10-27 08:53:24] [INFO] CSV file found: EntraUsers_20251027_083407.csv (96.6 KB)
+[2025-10-27 08:53:24] [INFO] CSV file encoded to Base64 (98922 bytes)
+[2025-10-27 08:53:24] [INFO] Creating email message...
+[2025-10-27 08:53:24] [INFO] Sending email via Microsoft Graph...
+[2025-10-27 08:53:29] [SUCCESS] Email successfully sent to findrik@tauris.sk with CSV attachment
+[2025-10-27 08:53:29] [INFO] Disconnected from Microsoft Graph
+[2025-10-27 08:53:29] [INFO] === EXPORT SUMMARY ===
+Start Time:    2025-10-27 08:34:07
+End Time:      2025-10-27 08:53:29
+Duration:      00:19:22
+Total Users:   985 users processed
+Exported:      603 users in export
+Skipped:       382 shared mailboxes
+Success Rate:  61.2% successful exports
+Export File:   D:\findrik\PowerShell\EntraID\ExportEntraUsers\EntraUsers_20251027_083407.csv
+================================================================================
+SCRIPT COMPLETED: 2025-10-27 08:53:29
+================================================================================
+[2025-10-27 08:53:29] [SUCCESS] Script execution completed successfully

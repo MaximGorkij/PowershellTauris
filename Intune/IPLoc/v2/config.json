@@ -1,0 +1,33 @@
+{
+    "Paths": {
+        "LogDirectory": "C:\\TaurisIT\\Log\\IPcheck",
+        "ScriptDirectory": "C:\\TaurisIT\\IPcheck",
+        "RegistryPath": "HKLM:\\SOFTWARE\\TaurisIT\\IPcheck",
+        "LogModulePath": "C:\\Program Files\\WindowsPowerShell\\Modules\\LogHelper\\LogHelper.psm1"
+    },
+    "GraphAPI": {
+        "RetryAttempts": 3,
+        "RetryDelaySeconds": 2,
+        "Timeout": 30,
+        "UseExponentialBackoff": true,
+        "MaxDeviceSearchResults": 1000
+    },
+    "Detection": {
+        "CacheValidityHours": 24,
+        "RequireGraphUpdate": false,
+        "AllowVPNDetection": true,
+        "FallbackToLastKnownLocation": true
+    },
+    "Logging": {
+        "EnableFileLogging": true,
+        "EnableEventLogging": true,
+        "EnableConsoleLogging": true,
+        "MaxLogSizeMB": 10,
+        "LogRetentionDays": 30
+    },
+    "Security": {
+        "UseKeyVault": false,
+        "KeyVaultName": "",
+        "SecureRegistryPath": true
+    }
+}

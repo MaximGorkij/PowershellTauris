@@ -1,0 +1,11 @@
+{
+    "Instalácia aplikácií": {
+      "Povoliť iba aplikácie z Obchodu Microsoft Store": "Blokovať",
+      "Povoliť vývojárske funkcie": "Blokovať",
+      "Povoliť hry": "Blokovať"
+    },
+    "Aplikácie": {
+      "Inštalácia aplikácií": "Blokovať",
+      "Obchod Microsoft Store": "Blokovať"
+    }
+  }

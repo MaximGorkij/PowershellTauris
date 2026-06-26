@@ -1,0 +1,12 @@
+2025-12-01 12:02:27 - START napravneho skriptu pre 7-Zip.
+2025-12-01 12:02:27 - 1/2: Start odinstalacie registrovanych verzii 7-Zip.
+2025-12-01 12:02:27 - Odinstalovavam: '7-Zip 25.01 (x64 edition)' s prikazom: 'MsiExec.exe /I{23170F69-40C1-2702-2501-000001000000}'
+2025-12-01 12:02:33 - 2/2: Start vycistenia zvyskov 7-Zip na filesysteme.
+2025-12-01 12:02:33 - Odstranujem zvysky adresara: C:\Program Files\7-Zip
+2025-12-01 12:02:33 - USPECH: Odinstalacia a vycistenie 7-Zip dokoncene uspesne.
+2025-12-01 12:05:15 - START napravneho skriptu pre 7-Zip (kompletna odinstalacia).
+2025-12-01 12:05:15 - 1/2: Start odinstalacie a vynuteneho cistenia registrovanych verzii 7-Zip.
+2025-12-01 12:05:15 - Odinstalovavam (Pokus 1/2): '7-Zip 25.01 (x64 edition)' s prikazom: 'MsiExec.exe /I{23170F69-40C1-2702-2501-000001000000}'
+2025-12-01 12:05:20 - CISTENIE REGISTRA (Pokus 2/2): Vynutene odstranujem registracny kluc pre '7-Zip 25.01 (x64 edition)'.
+2025-12-01 12:05:21 - 2/2: Start vycistenia zvyskov 7-Zip na filesysteme.
+2025-12-01 12:05:21 - USPECH: Odinstalacia a vycistenie 7-Zip dokoncene uspesne. PC je vycistene.

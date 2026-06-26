@@ -1,0 +1,3 @@
+[AppOnly] 2026-01-09 12:55:27 [INFO] Environment variables loaded from D:\findrik\PowerShell\Scripts\Teams\.env
+[AppOnly] 2026-01-09 12:55:27 [INFO] Connecting to Microsoft Graph (App-Only)
+[AppOnly] 2026-01-09 12:55:27 [ERROR] Microsoft Graph connection failed: Object reference not set to an instance of an object.

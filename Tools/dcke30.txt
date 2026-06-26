@@ -1,0 +1,90 @@
+Friendly Name	IP Address	Device Manufacturer	Status
+ap001-Calmar-BA-Kancel	10.82.0.105	RADIUS Standard	Disabled
+ap003-PAM	192.168.7.51	RADIUS Standard	Enabled
+ap11-Calmar-Depo-BB	10.80.40.6	RADIUS Standard	Enabled
+apm03-LDBA-Rampa-new	10.82.40.13	RADIUS Standard	Enabled
+apm05-Calmar depo BB	10.80.40.5	RADIUS Standard	Enabled
+Apm06-Rke-Zasadacka	192.168.7.79	RADIUS Standard	Enabled
+apRm10-IT	192.168.7.127	RADIUS Standard	Enabled
+ke-noe-ap-04	192.168.7.141	RADIUS Standard	Enabled
+Ryba apR001-OR	192.168.7.132	RADIUS Standard	Enabled
+Ryba apR002-MTZ	192.168.7.77	RADIUS Standard	Enabled
+Ryba apR003-EKO	192.168.7.124	RADIUS Standard	Enabled
+Ryba apR004-Expedicia	192.168.7.72	RADIUS Standard	Enabled
+Ryba apR005-CallCentrum	192.168.7.186	RADIUS Standard	Enabled
+Ryba apR006-Vyroba-Majstri	192.168.7.76	RADIUS Standard	Enabled
+Ryba apR007-Zasadacka	192.168.7.175	RADIUS Standard	Enabled
+Ryba apR008-IT	192.168.7.152	RADIUS Standard	Enabled
+Ryba apR009-Labak	192.168.7.207	RADIUS Standard	Enabled
+Ryba apR011-Zasadacka-nahrada	192.168.7.155	RADIUS Standard	Enabled
+snv-riadtiel-ap-01	10.30.0.10	RADIUS Standard	Enabled
+TG-BA-AP-01	10.82.11.2	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-01	10.60.11.11	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-02	10.60.11.12	RADIUS Standard	Enabled
+TG-KE--RYBA-AP-03-Zasadacka2	10.60.11.13	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-04-NAKUP	10.60.11.14	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-05-SEK	10.60.11.15	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-06-VYRMAJ	10.60.11.16	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-07-EKO	10.60.11.17	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-08-OBCHOD	10.60.11.18	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-09-MTZ	10.60.11.19	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-10-LABAKZAS	10.60.11.20	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-11-EXPEDICIA	10.60.11.21	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-12-MUB	10.60.11.22	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-13-ZASADACKA	10.60.11.23	RADIUS Standard	Enabled
+TG-KE-RYBA-AP-14-CC	10.60.11.24	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-01	10.50.11.11	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-02	10.50.11.12	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-03	10.50.11.13	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-04	10.50.11.14	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-05	10.50.11.59	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-06	10.50.11.43	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-07	10.50.11.44	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-08	10.50.11.45	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-09	10.50.11.46	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-10	10.50.11.47	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-11	10.50.11.48	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-12	10.50.11.49	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-13	10.50.11.50	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-14	10.50.11.51	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-15	10.50.11.52	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-16	10.50.11.53	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-17	10.50.11.54	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-18	10.50.11.55	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-19	10.50.11.56	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-20	10.50.11.57	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-21	10.50.11.58	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-22-rampa-1	10.50.11.42	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-24-vratnica	10.50.11.60	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-26-VS	10.50.11.62	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-27-Trelo	10.50.11.63	RADIUS Standard	Enabled
+TG-KE-SKLAD-AP-28-vchod	10.50.11.41	RADIUS Standard	Enabled
+tg-nr-ap-01	10.40.11.11	RADIUS Standard	Enabled
+tg-nr-ap-02	10.40.11.12	RADIUS Standard	Enabled
+tg-nr-ap-03	10.40.11.13	RADIUS Standard	Enabled
+tg-rs-ap-01	10.20.11.51	RADIUS Standard	Enabled
+tg-rs-ap-02	10.20.11.52	RADIUS Standard	Enabled
+tg-rs-ap-03	10.20.11.53	RADIUS Standard	Enabled
+tg-rs-ap-04	10.20.11.54	RADIUS Standard	Enabled
+tg-rs-ap-05	10.20.11.55	RADIUS Standard	Enabled
+tg-rs-ap-06	10.20.11.56	RADIUS Standard	Enabled
+tg-rs-ap-07	10.20.11.57	RADIUS Standard	Enabled
+tg-rs-ap-08	10.20.11.58	RADIUS Standard	Enabled
+tg-rs-ap-09	10.20.11.59	RADIUS Standard	Enabled
+tg-rs-ap-10	10.20.11.60	RADIUS Standard	Enabled
+tg-rs-ap-11	10.20.11.61	RADIUS Standard	Enabled
+tg-rs-ap-12	10.20.11.62	RADIUS Standard	Enabled
+tg-rs-ap-14	10.20.11.64	RADIUS Standard	Enabled
+tg-rs-ap-15	10.20.11.65	RADIUS Standard	Enabled
+TG-RS-HYGIENA-AP-15	10.20.11.65	RADIUS Standard	Enabled
+tg-rs-mv-ap-17	10.20.11.67	RADIUS Standard	Enabled
+TG-RS-RD05-MV-AP-16	10.20.11.66	RADIUS Standard	Enabled
+tg-snv-ap-01	10.30.11.51	RADIUS Standard	Enabled
+tg-snv-ap-02	10.30.11.52	RADIUS Standard	Enabled
+tg-snv-ap-03	10.30.11.53	RADIUS Standard	Enabled
+TG-SNV-AP-04	10.30.11.54	RADIUS Standard	Enabled
+tg-snv-ap-05	10.30.11.55	RADIUS Standard	Enabled
+tg-snv-ap-06	10.30.11.56	RADIUS Standard	Enabled
+TG-ZA-AP-01	10.83.11.2	RADIUS Standard	Enabled
+TG-ZA-AP-28-Vchod	10.83.11.41	RADIUS Standard	Enabled
+wlc	10.20.11.4	RADIUS Standard	Enabled

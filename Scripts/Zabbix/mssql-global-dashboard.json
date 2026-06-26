@@ -1,0 +1,71 @@
+{
+    "name": "MSSQL Global",
+    "widgets": [
+      {
+        "type": "problems",
+        "name": "MSSQL Problems",
+        "x": 0,
+        "y": 0,
+        "width": 24,
+        "height": 5,
+        "fields": [
+          { "name": "tags", "value": "component:mssql" }
+        ]
+      },
+      {
+        "type": "item",
+        "name": "MSSQL Status",
+        "x": 0,
+        "y": 5,
+        "width": 12,
+        "height": 6,
+        "fields": [
+          { "name": "itemid", "value": "MSSQL: Ping" },
+          { "name": "itemid", "value": "MSSQL: Master DB State" },
+          { "name": "itemid", "value": "MSSQL: Uptime" }
+        ]
+      },
+      {
+        "type": "graph",
+        "name": "MSSQL Performance",
+        "x": 12,
+        "y": 5,
+        "width": 12,
+        "height": 6,
+        "fields": [
+          { "name": "item", "value": "MSSQL: Batch Requests/sec" },
+          { "name": "item", "value": "MSSQL: User Connections (Performance Counter)" },
+          { "name": "item", "value": "MSSQL: User Sessions" },
+          { "name": "item", "value": "MSSQL: Deadlocks/sec" }
+        ]
+      },
+      {
+        "type": "graph",
+        "name": "MSSQL Memory",
+        "x": 0,
+        "y": 11,
+        "width": 12,
+        "height": 6,
+        "fields": [
+          { "name": "item", "value": "MSSQL: Buffer Cache Hit Ratio" },
+          { "name": "item", "value": "MSSQL: Page Life Expectancy" },
+          { "name": "item", "value": "MSSQL: Page Reads/sec" },
+          { "name": "item", "value": "MSSQL: Page Writes/sec" }
+        ]
+      },
+      {
+        "type": "graph",
+        "name": "MSSQL Storage",
+        "x": 12,
+        "y": 11,
+        "width": 12,
+        "height": 6,
+        "fields": [
+          { "name": "item", "value": "MSSQL: Total Database Size" },
+          { "name": "item", "value": "MSSQL: DB Data Size - {#DBNAME}" },
+          { "name": "item", "value": "MSSQL: DB Log Size - {#DBNAME}" }
+        ]
+      }
+    ]
+  }
+  

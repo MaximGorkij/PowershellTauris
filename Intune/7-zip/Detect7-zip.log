@@ -1,0 +1,12 @@
+2025-11-26 08:49:44 - START detekcneho skriptu pre 7-Zip.
+2025-11-26 08:49:47 - DETEKCIA: 7-Zip je stale nainstalovany (PROBLEM NAJDENY). Spusti sa naprava.
+2025-11-26 08:52:51 - START detekcneho skriptu pre 7-Zip.
+2025-11-26 08:52:51 - DETEKCIA: 7-Zip je stale nainstalovany (PROBLEM NAJDENY). Spusti sa naprava.
+2025-11-26 08:55:34 - START detekcneho skriptu pre 7-Zip.
+2025-11-26 08:55:34 - DETEKCIA: 7-Zip nie je nainstalovany (PROBLEM NENAJDENY). Nenutna naprava.
+2025-12-01 12:02:16 - START detekcneho skriptu pre 7-Zip (Registry & Filesystem).
+2025-12-01 12:02:19 - DETEKCIA: 7-Zip je stale nainstalovany/pritomny (REGISTRY A FILESYSTEM - PROBLEM NAJDENY). Spusti sa naprava.
+2025-12-01 12:02:36 - START detekcneho skriptu pre 7-Zip (Registry & Filesystem).
+2025-12-01 12:02:36 - DETEKCIA: 7-Zip je stale nainstalovany/pritomny (REGISTRY - PROBLEM NAJDENY). Spusti sa naprava.
+2025-12-01 12:05:23 - START detekcneho skriptu pre 7-Zip (Registry & Filesystem).
+2025-12-01 12:05:23 - DETEKCIA: 7-Zip nie je nainstalovany ani pritomny (PROBLEM NENAJDENY). Nie je nutna naprava.

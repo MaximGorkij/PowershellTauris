@@ -1,0 +1,2 @@
+[AppOnly] 2026-01-09 12:41:39 [ERROR] Failed to load .env or Load-Env.psm1: The term 'Load-Env' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.

@@ -1,0 +1,9 @@
+2025-11-26 08:54:08 - START: Spustenie nápravného skriptu (Remediation) pre odinstalaciu 7-Zip.
+2025-11-26 08:54:08 - Najdenych 2 instalacii 7-Zip pre odinstalaciu.
+2025-11-26 08:54:08 - Spracovavam verziu: 7-Zip 25.00 (x64 edition).
+2025-11-26 08:54:08 - Spustam: MsiExec.exe /X {23170F69-40C1-2702-2500-000001000000} /qn /norestart
+2025-11-26 08:54:11 - ODINSTALOVANE: 7-Zip 25.00 (x64 edition) bola uspesne odinstalovana.
+2025-11-26 08:54:11 - Spracovavam verziu: 7-Zip 25.01 (x64 edition).
+2025-11-26 08:54:11 - Spustam: MsiExec.exe /X {23170F69-40C1-2702-2501-000001000000} /qn /norestart
+2025-11-26 08:54:12 - ODINSTALOVANE: 7-Zip 25.01 (x64 edition) bola uspesne odinstalovana.
+2025-11-26 08:54:12 - FINISH: Proces nápravy bol dokonceny.

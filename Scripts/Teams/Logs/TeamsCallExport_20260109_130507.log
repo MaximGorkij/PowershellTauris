@@ -1,0 +1,5 @@
+[AppOnly] 2026-01-09 13:05:07 [INFO] Environment variables loaded from D:\findrik\PowerShell\Scripts\Teams\.env
+[AppOnly] 2026-01-09 13:05:07 [INFO] Connecting to Microsoft Graph (App-Only)
+[AppOnly] 2026-01-09 13:05:14 [INFO] Connected to Microsoft Graph. TenantId=ebf9edb5-a5f7-4d70-9a59-501865f222ee
+[AppOnly] 2026-01-09 13:05:14 [INFO] Fetching Teams Call Records
+[AppOnly] 2026-01-09 13:05:14 [ERROR] Error fetching call records: A parameter cannot be found that matches parameter name 'PageSize'.
