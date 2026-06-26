@@ -1,161 +1,132 @@
-﻿# Uninstall.ps1 - Intune Win32 app uninstall script
+<#
+.SYNOPSIS
+    Intune Win32 app V5.1 - Odinstalovanie IP Lokalizacia.
+.DESCRIPTION
+    - Vymaze extensionAttribute1 na device objekte v Entra ID (nastavi na null).
+    - Odstrani detection registry kluc HKLM:\SOFTWARE\TaurisIT\IPLocation.
+    - Loguje cely proces cez LogHelper modul.
+.NOTES
+    Verzia: 5.1
+    Autor: Marek F.
+    Pozadovane moduly: LogHelper
+    Datum vytvorenia: 25.06.2026
+    Logovanie: C:\TaurisIT\Log\IPLoc
+#>
 
 # ============================================================================
-# AUTOMATICKA DETEKCIA 32-BIT A RESTART AKO 64-BIT (WoW64 FIX)
+# WoW64 FIX - restart ako 64-bit ak bezi v 32-bit PS
 # ============================================================================
 if ([System.Environment]::Is64BitProcess -eq $false) {
-    $ps64bit = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    if (Test-Path $ps64bit) {
-        $scriptPath = $PSCommandPath
-        $invokeArgs = @(
-            "-NoProfile"
-            "-ExecutionPolicy", "Bypass"
-            "-File", $scriptPath
-        )
-        & $ps64bit @invokeArgs
-        exit $LASTEXITCODE
+    $ps64 = "$env:SystemRoot\SysNative\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path $ps64)) {
+        $ps64 = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     }
+    & $ps64 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+    exit $LASTEXITCODE
 }
 
-$LogDir = "C:\TaurisIT\Log\IPLoc"
-$LogFile = Join-Path $LogDir "IPcheck.log"
-$EventSource = "IntuneScript"
+Set-StrictMode -Off
+$ErrorActionPreference = 'Stop'
 
-if (-not (Test-Path -Path $LogDir)) { 
-    $null = New-Item -Path $LogDir -ItemType Directory -Force -ErrorAction SilentlyContinue 
+$ComputerName = (Get-WmiObject Win32_ComputerSystem).Name
+
+# ============================================================================
+# LOGOVANIE
+# ============================================================================
+$LogFileName = "IPLoc\IPcheck.log"
+$EventSource = "TaurisIT_IPLoc"
+$EventLog    = "Application"
+
+Import-Module LogHelper -ErrorAction SilentlyContinue
+
+function Write-Log {
+    param([string]$Message, [string]$Type = 'Information')
+    Write-CustomLog `
+        -Message      $Message `
+        -EventSource  $EventSource `
+        -EventLogName $EventLog `
+        -LogFileName  $LogFileName `
+        -Type         $Type
 }
 
 # ============================================================================
-# VYTVORENIE EVENT LOG ZDROJA BEZNE (bez závislosti na LogHelper)
+# NACITANIE .env
 # ============================================================================
-function Ensure-EventLogSource {
-    param (
-        [string]$Source,
-        [string]$LogName = "Application"
-    )
-    
-    try {
-        if (-not ([System.Diagnostics.EventLog]::SourceExists($Source))) {
-            New-EventLog -LogName $LogName -Source $Source -ErrorAction SilentlyContinue
-        }
-    }
-    catch { }
-}
-
-Ensure-EventLogSource -Source $EventSource
-
-$logHelperPath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper"
-if (Test-Path $logHelperPath) {
-    try { Import-Module LogHelper -ErrorAction Stop; $logHelperAvailable = $true } 
-    catch { $logHelperAvailable = $false }
-} else { 
-    $logHelperAvailable = $false 
-}
-
-if ($logHelperAvailable) { 
-    try { 
-        $null = Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30 -ErrorAction SilentlyContinue 
-    } 
-    catch { } 
-}
-
-# ============================================================================
-# FALLBACK LOGGING FUNKCIA (ak LogHelper nie je dostupný)
-# ============================================================================
-if (-not (Get-Command Write-IntuneLog -ErrorAction SilentlyContinue)) {
-    function Write-IntuneLog {
-        param (
-            [string]$Message,
-            [string]$Level = "INFO",
-            [string]$LogFile,
-            [string]$EventSource
-        )
-        
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $logEntry = "[$timestamp] [$Level] $Message"
-        
-        try {
-            Add-Content -Path $LogFile -Value $logEntry -Encoding UTF8 -ErrorAction SilentlyContinue
-        } catch { }
-        
-        if (-not [string]::IsNullOrEmpty($EventSource)) {
-            try {
-                if ([System.Diagnostics.EventLog]::SourceExists($EventSource)) {
-                    $eventLog = New-Object System.Diagnostics.EventLog("Application")
-                    $eventLog.Source = $EventSource
-                    $eventType = switch ($Level) {
-                        "ERROR" { "Error" }
-                        "WARNING" { "Warning" }
-                        default { "Information" }
-                    }
-                    $eventLog.WriteEntry($Message, $eventType, 1000)
-                }
-            } catch { }
-        }
-        
-        $color = switch ($Level) {
-            "ERROR" { "Red" }
-            "WARNING" { "Yellow" }
-            default { "Gray" }
-        }
-        Write-Host $logEntry -ForegroundColor $color -ErrorAction SilentlyContinue
-    }
-}
-
 function Import-DotEnv {
-    param ([string]$Path = (Join-Path $PSScriptRoot ".env"))
-    if (-not (Test-Path $Path)) { throw ".env nenajdeny" }
+    param([string]$Path = (Join-Path $PSScriptRoot ".env"))
+    if (-not (Test-Path $Path)) { throw ".env subor neexistuje: $Path" }
     Get-Content $Path -Encoding UTF8 | ForEach-Object {
         $line = $_.Trim()
         if ($line -match '^\s*#' -or $line -match '^\s*$') { return }
         if ($line -match '^\s*([^=]+?)\s*=\s*(.*)$') {
-            $key = $matches[1].Trim()
-            $value = $matches[2].Trim()
-            if ($value -match '^["`"](.*)[\"`"]$') { $value = $matches[1] }
-            [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            $k = $matches[1].Trim()
+            $v = $matches[2].Trim() -replace '^["\x27]|["\x27]$', ''
+            [Environment]::SetEnvironmentVariable($k, $v, 'Process')
         }
     }
 }
 
+# ============================================================================
+# HLAVNA LOGIKA
+# ============================================================================
 try {
-    Write-IntuneLog -Message "Uninstall zaciatok" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    
+    Write-Log "========== ZACIATOK ODINSTALACIE V5.1 ==========" 'Information'
+    Write-Log "Kontext: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)" 'Information'
+    Write-Log "Pocitac: $ComputerName" 'Information'
+
+    # .env
+    Write-Log "Nacitavam .env..." 'Information'
     Import-DotEnv
-    $clientId = $env:GRAPH_CLIENT_ID
-    $tenantId = $env:GRAPH_TENANT_ID
-    $clientSecret = $env:GRAPH_CLIENT_SECRET
+    $ClientId     = $env:GRAPH_CLIENT_ID
+    $TenantId     = $env:GRAPH_TENANT_ID
+    $ClientSecret = $env:GRAPH_CLIENT_SECRET
+    if ([string]::IsNullOrEmpty($ClientId))     { throw "GRAPH_CLIENT_ID chyba v .env" }
+    if ([string]::IsNullOrEmpty($TenantId))     { throw "GRAPH_TENANT_ID chyba v .env" }
+    if ([string]::IsNullOrEmpty($ClientSecret)) { throw "GRAPH_CLIENT_SECRET chyba v .env" }
+    Write-Log ".env nacitany OK." 'Information'
 
-    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.DirectoryManagement)) {
-        Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -Scope AllUsers -Force -ErrorAction Stop
+    # Graph token
+    Write-Log "Ziskavam Graph token..." 'Information'
+    $tokenUrl  = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+    $tokenBody = "grant_type=client_credentials&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default" +
+                 "&client_id=$ClientId&client_secret=$([Uri]::EscapeDataString($ClientSecret))"
+    $tokenResp = Invoke-RestMethod -Method Post -Uri $tokenUrl `
+        -Body $tokenBody -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
+    $token   = $tokenResp.access_token
+    $headers = @{ Authorization = "Bearer $token" }
+    Write-Log "Graph token ziskany OK." 'Information'
+
+    # Ziskaj device ID
+    Write-Log "Hladam zariadenie $ComputerName v Entra ID..." 'Information'
+    $deviceUrl  = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$ComputerName'&`$select=id,displayName"
+    $deviceResp = Invoke-RestMethod -Method Get -Uri $deviceUrl -Headers $headers -ErrorAction Stop
+    $device     = $deviceResp.value | Select-Object -First 1
+    if (-not $device) { throw "Zariadenie $ComputerName sa nenaslo v Entra ID." }
+    Write-Log "Zariadenie najdene - ID: $($device.id)" 'Information'
+
+    # Vymaz extensionAttribute1 (nastav na null)
+    Write-Log "Mazem extensionAttribute1..." 'Information'
+    $patchUrl  = "https://graph.microsoft.com/beta/devices/$($device.id)"
+    $patchBody = '{"extensionAttributes":{"extensionAttribute1":null}}'
+    Invoke-RestMethod -Method Patch -Uri $patchUrl -Headers $headers `
+        -Body $patchBody -ContentType 'application/json' -ErrorAction Stop
+    Write-Log "extensionAttribute1 vymazany pre $ComputerName." 'Information'
+
+    # Odstran registry kluc
+    Write-Log "Odstranujem registry kluc..." 'Information'
+    $regPath = "HKLM:\SOFTWARE\TaurisIT\IPLocation"
+    if (Test-Path $regPath) {
+        Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop
+        Write-Log "Registry kluc odstraneny: $regPath" 'Information'
+    } else {
+        Write-Log "Registry kluc neexistuje, preskakujem." 'Information'
     }
-    Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
 
-    $authBody = @{
-        grant_type = "client_credentials"
-        scope = "https://graph.microsoft.com/.default"
-        client_id = $clientId
-        client_secret = $clientSecret
-    }
-    $tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
-    $secureToken = ConvertTo-SecureString $tokenResponse.access_token -AsPlainText -Force
-    $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
-
-    $deviceName = $env:COMPUTERNAME
-    $response = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id,displayName" -ErrorAction Stop
-    $device = $response.value | Select-Object -First 1
-    if (-not $device) { throw "Device nenajdeny" }
-
-    $clearBody = ConvertTo-Json -InputObject @{extensionAttribute1 = $null}
-    Invoke-MgGraphRequest -Method PATCH -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" -Body $clearBody -ContentType "application/json" -ErrorAction Stop
-
-    Write-IntuneLog -Message "Uninstall uspesne" -Level "SUCCESS" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    if (Test-Path $LogDir) { Remove-Item -Path $LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+    Write-Log "========== ODINSTALOVANIE USPESNE DOKONCENE ==========" 'Information'
     exit 0
-} 
+}
 catch {
-    Write-IntuneLog -Message "ERROR: $($_.Exception.Message)" -Level "ERROR" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    Write-Log "CHYBA: $($_.Exception.Message)" 'Error'
+    Write-Log "Stack: $($_.ScriptStackTrace)" 'Error'
     exit 1
-} 
-finally {
-    $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
 }

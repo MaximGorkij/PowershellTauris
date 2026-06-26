@@ -1,341 +1,170 @@
-# Install.ps1 - Hlavny instalacny skript pre Intune Win32 aplikaciu
-# Urcuje lokaciju podla IP adresy z IPLocationMap.json, nacita citlive udaje z .env suboru,
-# zapisuje do Entra ID extensionAttribute1 cez Microsoft Graph.
-# Logovanie cez LogHelper.psm1 (nainstalovany v C:\Program Files\WindowsPowerShell\Modules\LogHelper).
-# Spusta sa v SYSTEM kontexte cez Intune.
-
 <#
 .SYNOPSIS
-    Intune Win32 app - Nastavi lokaciju v Entra ID extensionAttribute1 podla aktualnej IP.
-    Citlive udaje (ClientId, TenantId, ClientSecret) su v .env subore.
+    Intune Win32 app V5 - Nastavi lokaciju v Entra ID extensionAttribute1 podla aktualnej IP.
 .DESCRIPTION
-    - Nacita .env pre autentifikaciu.
-    - Nacita IPLocationMap.json pre mapovanie IP prefixov na lokacje.
+    - Nacita .env pre autentifikaciu (ClientId, TenantId, ClientSecret).
+    - Nacita IPLocationMap.json pre mapovanie IP prefixov na lokacije.
     - Ziskuje aktualnu internu IP (10.x rozsah).
     - Urci lokaciju pomocou longest prefix match.
-    - Pripoji sa k Microsoft Graph pomocou client credentials flow.
-    - Aktualizuje extensionAttribute1 na device objekte.
-    - Loguje cely proces do C:\TaurisIT\Log\IPLoc\IPcheck.log cez LogHelper modul.
+    - Ziska Graph token cez client credentials (priamy REST - bez SDK).
+    - Aktualizuje extensionAttribute1 na device objekte v Entra ID.
+    - Zapisuje detection registry kluc HKLM:\SOFTWARE\TaurisIT\IPLocation\LastLocation.
+    - Loguje cely proces cez LogHelper modul.
 .NOTES
-    - Vyzaduje Microsoft.Graph moduly (instaluje sa automaticky ak chybaju).
-    - Vyzaduje LogHelper modul (C:\Program Files\WindowsPowerShell\Modules\LogHelper).
-    - Permissions: App Registration s Device.ReadWrite.All (Application permission, admin consent).
-    - Bezpecnost: .env je plain text - nepouzivat v produkcii bez sifrovania!
-    - Detection rule v Intune: File exists C:\TaurisIT\Log\IPLoc\IPcheck.log.
-    - Install command: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File .\Install.ps1
+    Verzia: 5.1
+    Autor: Marek F.
+    Pozadovane moduly: LogHelper
+    Datum vytvorenia: 25.06.2026
+    Logovanie: C:\TaurisIT\Log\IPLoc
 #>
 
 # ============================================================================
-# AUTOMATICKA DETEKCIA 32-BIT A RESTART AKO 64-BIT (WoW64 FIX)
+# WoW64 FIX - restart ako 64-bit ak bezi v 32-bit PS
 # ============================================================================
-# Intune casto spusta skripty v 32-bit PowerShell (WoW64 redirection)
-# To spôsobuje problémy s modulmi a Event Log zdrojmi. Prinutime 64-bit spustenie.
 if ([System.Environment]::Is64BitProcess -eq $false) {
-    # Aktualne sme v 32-bit PowerShell, restartuj ako 64-bit
-    $ps64bit = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    if (Test-Path $ps64bit) {
-        $scriptPath = $PSCommandPath
-        $invokeArgs = @(
-            "-NoProfile"
-            "-ExecutionPolicy", "Bypass"
-            "-File", $scriptPath
-        )
-        & $ps64bit @invokeArgs
-        exit $LASTEXITCODE
+    $ps64 = "$env:SystemRoot\SysNative\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path $ps64)) {
+        $ps64 = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     }
+    & $ps64 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+    exit $LASTEXITCODE
 }
-# Ak sme sem dosli, sme v 64-bit PowerShell - pokracuj normalne.
 
-# Funkcia na nacitanie .env suboru (bez externych modulov)
+Set-StrictMode -Off
+$ErrorActionPreference = 'Stop'
+
+# Nazov pocitaca - nacitame z WMI, nie z env (SYSTEM kontext moze mat prazdne env)
+$ComputerName = (Get-WmiObject Win32_ComputerSystem).Name
+
+# ============================================================================
+# LOGOVANIE
+# ============================================================================
+$LogFileName = "IPLoc\IPcheck.log"
+$EventSource = "TaurisIT_IPLoc"
+$EventLog    = "Application"
+
+Import-Module LogHelper -ErrorAction SilentlyContinue
+
+function Write-Log {
+    param([string]$Message, [string]$Type = 'Information')
+    Write-CustomLog `
+        -Message      $Message `
+        -EventSource  $EventSource `
+        -EventLogName $EventLog `
+        -LogFileName  $LogFileName `
+        -Type         $Type
+}
+
+# ============================================================================
+# NACITANIE .env
+# ============================================================================
 function Import-DotEnv {
-    param (
-        [string]$Path = (Join-Path $PSScriptRoot ".env")
-    )
-
+    param([string]$Path = (Join-Path $PSScriptRoot ".env"))
     if (-not (Test-Path $Path)) {
-        throw ".env subor sa nenasiel na ceste: $Path. Skript nemoze pokracovat bez autentifikacsnych udajov."
+        throw ".env subor neexistuje: $Path"
     }
-
     Get-Content $Path -Encoding UTF8 | ForEach-Object {
         $line = $_.Trim()
-        if ($line -match '^\s*#') { return }  # Ignoruj komentare
-        if ($line -match '^\s*$') { return }  # Ignoruj prazde riadky
+        if ($line -match '^\s*#' -or $line -match '^\s*$') { return }
         if ($line -match '^\s*([^=]+?)\s*=\s*(.*)$') {
-            $key = $matches[1].Trim()
-            $value = $matches[2].Trim()
-            if ($value -match '^["`"](.*)[\"`"]$') { $value = $matches[1] }  # Odstran uvodzovky
-            [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            $k = $matches[1].Trim()
+            $v = $matches[2].Trim() -replace '^["\x27]|["\x27]$', ''
+            [Environment]::SetEnvironmentVariable($k, $v, 'Process')
         }
     }
-}
-
-# Nastavenia logovania
-$LogDir = "C:\TaurisIT\Log\IPLoc"
-$LogFile = Join-Path $LogDir "IPcheck.log"
-$EventSource = "IntuneAppInstall"
-
-# Test a vytvorenie cesty k logom ak neexistuje
-if (-not (Test-Path -Path $LogDir)) {
-    $null = New-Item -Path $LogDir -ItemType Directory -Force -ErrorAction SilentlyContinue
 }
 
 # ============================================================================
-# VYTVORENIE EVENT LOG ZDROJA BEZNE (bez závislosti na LogHelper)
+# HLAVNA LOGIKA
 # ============================================================================
-# Toto sa spúšťa vždy, aby sa zaistilo, že Event Log zdroj existuje
-# Ak zlyhá (napr. z bezpečnostných dôvodov), pokračujeme s fallback loganím
-function Ensure-EventLogSource {
-    param (
-        [string]$Source,
-        [string]$LogName = "Application"
-    )
-    
-    try {
-        if (-not ([System.Diagnostics.EventLog]::SourceExists($Source))) {
-            New-EventLog -LogName $LogName -Source $Source -ErrorAction SilentlyContinue
-        }
-    }
-    catch {
-        # Ignoruj chyby - pokračuj s fallback loganím
-    }
-}
-
-Ensure-EventLogSource -Source $EventSource
-
-# Import LogHelper modulu
-$logHelperPath = "C:\Program Files\WindowsPowerShell\Modules\LogHelper"
-if (Test-Path $logHelperPath) {
-    try {
-        Import-Module LogHelper -ErrorAction Stop
-        $logHelperAvailable = $true
-    }
-    catch {
-        Write-Host "Upozornenie: LogHelper modul sa nepodarilo importovať. Používam fallback logging." -ForegroundColor Yellow
-        $logHelperAvailable = $false
-    }
-}
-else {
-    Write-Host "Upozornenie: LogHelper modul sa nenasiel na $logHelperPath. Používam fallback logging." -ForegroundColor Yellow
-    $logHelperAvailable = $false
-}
-
-# ============================================================================
-# FALLBACK LOGGING FUNKCIA (ak LogHelper nie je dostupný)
-# ============================================================================
-# Táto funkcia sa používa v prípade, že LogHelper modul nie je dostupný
-if (-not (Get-Command Write-IntuneLog -ErrorAction SilentlyContinue)) {
-    function Write-IntuneLog {
-        param (
-            [string]$Message,
-            [string]$Level = "INFO",
-            [string]$LogFile,
-            [string]$EventSource
-        )
-        
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $logEntry = "[$timestamp] [$Level] $Message"
-        
-        # Zapíš do textového logu
-        try {
-            Add-Content -Path $LogFile -Value $logEntry -Encoding UTF8 -ErrorAction SilentlyContinue
-        }
-        catch { }
-        
-        # Zapíš do Event Logu ak je zdroj dostupný
-        if (-not [string]::IsNullOrEmpty($EventSource)) {
-            try {
-                if ([System.Diagnostics.EventLog]::SourceExists($EventSource)) {
-                    $eventLog = New-Object System.Diagnostics.EventLog("Application")
-                    $eventLog.Source = $EventSource
-                    $eventType = switch ($Level) {
-                        "ERROR" { "Error" }
-                        "WARNING" { "Warning" }
-                        "SUCCESS" { "Information" }
-                        "OK" { "Information" }
-                        "INFO" { "Information" }
-                        "DEBUG" { "Information" }
-                        default { "Information" }
-                    }
-                    $eventLog.WriteEntry($Message, $eventType, 1000)
-                }
-            }
-            catch { }
-        }
-        
-        # Výstup do konzoly
-        $color = switch ($Level) {
-            "ERROR" { "Red" }
-            "WARNING" { "Yellow" }
-            "SUCCESS" { "Green" }
-            "OK" { "Green" }
-            default { "Gray" }
-        }
-        Write-Host $logEntry -ForegroundColor $color -ErrorAction SilentlyContinue
-    }
-}
-
-# Inicializacia log systemu cez LogHelper
-if ($logHelperAvailable) {
-    try {
-        Initialize-LogSystem -LogDirectory $LogDir -EventSource $EventSource -RetentionDays 30 -ErrorAction SilentlyContinue
-    }
-    catch {
-        # Pokracuj aj ak inicializacia zlyhá
-    }
-}
-
-# Zaciatok logovania
 try {
-    Write-IntuneLog -Message "========== ZACIATOK INSTALACIE WIN32 APP ==========" -Level "SUCCESS" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Urcenie lokacie podla IP adresy." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Cesta k logom: $LogDir" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Skripty spusteny v kontexte: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-}
-catch {
-    Write-Host "Logovacie info: $_ - pokracujem s fallback loganim" -ForegroundColor Yellow
-}
+    Write-Log "========== ZACIATOK INSTALACIE V5.1 ==========" 'Information'
+    Write-Log "Kontext: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)" 'Information'
+    Write-Log "Pocitac: $ComputerName" 'Information'
 
-try {
-    # Nacitaj .env
-    Write-IntuneLog -Message "Nacitavam .env subor..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # .env
+    Write-Log "Nacitavam .env..." 'Information'
     Import-DotEnv
-    $ClientId = $env:GRAPH_CLIENT_ID
-    $TenantId = $env:GRAPH_TENANT_ID
+    $ClientId     = $env:GRAPH_CLIENT_ID
+    $TenantId     = $env:GRAPH_TENANT_ID
     $ClientSecret = $env:GRAPH_CLIENT_SECRET
+    if ([string]::IsNullOrEmpty($ClientId))     { throw "GRAPH_CLIENT_ID chyba v .env" }
+    if ([string]::IsNullOrEmpty($TenantId))     { throw "GRAPH_TENANT_ID chyba v .env" }
+    if ([string]::IsNullOrEmpty($ClientSecret)) { throw "GRAPH_CLIENT_SECRET chyba v .env" }
+    Write-Log ".env nacitany OK. ClientId: $($ClientId.Substring(0,8))****" 'Information'
 
-    if ([string]::IsNullOrEmpty($ClientId)) {
-        throw "GRAPH_CLIENT_ID v .env je prazdny alebo chyba."
-    }
-    if ([string]::IsNullOrEmpty($TenantId)) {
-        throw "GRAPH_TENANT_ID v .env je prazdny alebo chyba."
-    }
-    if ([string]::IsNullOrEmpty($ClientSecret)) {
-        throw "GRAPH_CLIENT_SECRET v .env je prazdny alebo chyba."
-    }
-    Write-IntuneLog -Message ".env subor nacitany uspesne. ClientId: $([string]::Concat($ClientId.Substring(0, [Math]::Min(4, $ClientId.Length)), '****'))" -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-
-    # Nacitaj IPLocationMap.json
-    Write-IntuneLog -Message "Nacitavam IPLocationMap.json..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # IPLocationMap.json
+    Write-Log "Nacitavam IPLocationMap.json..." 'Information'
     $JsonPath = Join-Path $PSScriptRoot "IPLocationMap.json"
-    if (-not (Test-Path $JsonPath)) {
-        throw "IPLocationMap.json sa nenasiel na ceste: $JsonPath."
-    }
+    if (-not (Test-Path $JsonPath)) { throw "IPLocationMap.json neexistuje: $JsonPath" }
     $jsonContent = Get-Content $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $ipMap = @{}
     $jsonContent.PSObject.Properties | ForEach-Object { $ipMap[$_.Name] = $_.Value }
-    Write-IntuneLog -Message "IPLocationMap.json nacitany - pocet prefixov: $($ipMap.Count). Prefixvy: $($ipMap.Keys -join ', ')." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    Write-Log "IPLocationMap.json OK - $($ipMap.Count) prefixov." 'Information'
 
-    # Ziskaj aktualnu IP (prva aktivna v 10.x rozsahu)
-    Write-IntuneLog -Message "Vyhladavam aktualnu IP adresu v rozsahu 10.x.x.x..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # Aktualna IP v rozsahu 10.x
+    Write-Log "Hladam IP adresu 10.x.x.x..." 'Information'
     $ipAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
         Where-Object { $_.IPAddress -match '^10\.' -and $_.AddressState -eq 'Preferred' })
-    if ($ipAddresses.Count -eq 0) {
-        throw "Nenasla sa ziadna aktivna IP adresa v rozsahu 10.x.x.x."
-    }
+    if ($ipAddresses.Count -eq 0) { throw "Nenasla sa ziadna IP adresa v rozsahu 10.x.x.x." }
     $currentIP = ($ipAddresses | Select-Object -First 1).IPAddress
-    Write-IntuneLog -Message "Aktualna IP adresa: $currentIP." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    Write-Log "Aktualna IP: $currentIP" 'Information'
 
-    # Urcenie lokacije - longest prefix match
-    Write-IntuneLog -Message "Urcujem lokaciu pomocou longest prefix match..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # Longest prefix match
+    Write-Log "Urcujem lokaciu..." 'Information'
     $location = $null
     $longestPrefix = ""
     foreach ($prefix in $ipMap.Keys) {
         if ($currentIP.StartsWith($prefix) -and $prefix.Length -gt $longestPrefix.Length) {
             $longestPrefix = $prefix
             $location = $ipMap[$prefix]
-            Write-IntuneLog -Message "  -> Prefix match: $prefix => lokacia: $location" -Level "DEBUG" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
         }
     }
-    if ([string]::IsNullOrEmpty($location)) {
-        throw "Pre IP $currentIP sa nenasla ziadna zodpovedajuca lokacia v mape."
-    }
-    Write-IntuneLog -Message "VYSLEDOK: Lokacia '$location' (prefix: '$longestPrefix' pre IP: $currentIP)" -Level "SUCCESS" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrEmpty($location)) { throw "Pre IP $currentIP sa nenasla lokacia v mape." }
+    Write-Log "Lokacia: $location (prefix: $longestPrefix)" 'Information'
 
-    # Instalacija len potrebnych Graph modulov ak chybaju
-    Write-IntuneLog -Message "Kontrolujem dostupnost Microsoft.Graph modulov..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Identity.DirectoryManagement)) {
-        Write-IntuneLog -Message "Microsoft.Graph moduly nie su nainstalovane, instalujem..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-        Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -Scope AllUsers -Force -ErrorAction Stop
-        Write-IntuneLog -Message "Microsoft.Graph moduly uspesne nainstalovane." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    }
-    else {
-        Write-IntuneLog -Message "Microsoft.Graph moduly su uz nainstalovane." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    }
-    Import-Module Microsoft.Graph.Authentication, Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop
-    Write-IntuneLog -Message "Microsoft.Graph moduly nacitane do session." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # Graph token - priamy REST, bez SDK
+    Write-Log "Ziskavam Graph token..." 'Information'
+    $tokenUrl  = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+    $tokenBody = "grant_type=client_credentials&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default" +
+                 "&client_id=$ClientId&client_secret=$([Uri]::EscapeDataString($ClientSecret))"
+    $tokenResp = Invoke-RestMethod -Method Post -Uri $tokenUrl `
+        -Body $tokenBody -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
+    $token = $tokenResp.access_token
+    Write-Log "Graph token ziskany OK." 'Information'
 
-    # Autentifikacia k Microsoft Graph (client credentials flow)
-    Write-IntuneLog -Message "Autentifikujem sa k Microsoft Graph..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $authBody = @{
-        grant_type    = "client_credentials"
-        scope         = "https://graph.microsoft.com/.default"
-        client_id     = $ClientId
-        client_secret = $ClientSecret
-    }
-    $tokenResponse = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
-        -Body $authBody -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
-    $accessToken = $tokenResponse.access_token
-    Write-IntuneLog -Message "Access token ziskany uspesne." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    $headers = @{ Authorization = "Bearer $token" }
 
-    # Graph SDK v2 vyzaduje SecureString pre -AccessToken
-    Write-IntuneLog -Message "Pripajam sa k Microsoft Graph SDK..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $secureToken = ConvertTo-SecureString $accessToken -AsPlainText -Force
-    $null = Connect-MgGraph -AccessToken $secureToken -NoWelcome -ErrorAction Stop
-    Write-IntuneLog -Message "Uspesne pripojene k Microsoft Graph." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # Ziskaj device ID z Entra ID
+    Write-Log "Hladam zariadenie $ComputerName v Entra ID..." 'Information'
+    $deviceUrl  = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$ComputerName'&`$select=id,displayName"
+    $deviceResp = Invoke-RestMethod -Method Get -Uri $deviceUrl -Headers $headers -ErrorAction Stop
+    $device     = $deviceResp.value | Select-Object -First 1
+    if (-not $device) { throw "Zariadenie $ComputerName sa nenaslo v Entra ID." }
+    Write-Log "Zariadenie najdene - ID: $($device.id)" 'Information'
 
-    # Ziskenie device objektu - Select-Object -First 1 pre pripad viacerych zariadeni s rovnakym menom
-    Write-IntuneLog -Message "Vyhladavam zariadenie v Entra ID..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $deviceName = $env:COMPUTERNAME
-    Write-IntuneLog -Message "Meno zariadenia: $deviceName" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $response = Invoke-MgGraphRequest -Method GET `
-        -Uri "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$deviceName'&`$select=id, displayName" `
-        -ErrorAction Stop
-    $device = $response.value | Select-Object -First 1
-    if (-not $device) {
-        throw "Zariadenie '$deviceName' sa nenaslo v Entra ID."
-    }
-    Write-IntuneLog -Message "Zariadenie najdene - ID: $($device.id)" -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    # Aktualizuj extensionAttribute1
+    Write-Log "Aktualizujem extensionAttribute1 na hodnotu: $location" 'Information'
+    $patchUrl  = "https://graph.microsoft.com/beta/devices/$($device.id)"
+    $patchBody = '{"extensionAttributes":{"extensionAttribute1":"' + $location + '"}}'
+    Invoke-RestMethod -Method Patch -Uri $patchUrl -Headers $headers `
+        -Body $patchBody -ContentType 'application/json' -ErrorAction Stop
+    Write-Log "extensionAttribute1 aktualizovany na '$location' pre $ComputerName." 'Information'
 
-    # Aktualizacia extensionAttribute1
-    Write-IntuneLog -Message "Aktualizujem extensionAttribute1 na hodnotu: $location" -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $updateBody = ConvertTo-Json -InputObject @{
-        extensionAttribute1 = $location
-    }
+    # Detection registry kluc
+    Write-Log "Zapisujem registry detection kluc..." 'Information'
+    $regPath = "HKLM:\SOFTWARE\TaurisIT\IPLocation"
+    New-Item -Path $regPath -Force -ErrorAction Stop | Out-Null
+    Set-ItemProperty -Path $regPath -Name "LastLocation"  -Value $location                             -Type String -Force
+    Set-ItemProperty -Path $regPath -Name "LastUpdated"   -Value (Get-Date -Format "yyyy-MM-dd HH:mm:ss") -Type String -Force
+    Set-ItemProperty -Path $regPath -Name "ComputerName"  -Value $ComputerName                         -Type String -Force
+    Write-Log "Registry OK: $regPath\LastLocation = $location" 'Information'
 
-    Invoke-MgGraphRequest -Method PATCH `
-        -Uri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
-        -Body $updateBody -ContentType "application/json" -ErrorAction Stop
-
-    Write-IntuneLog -Message "Lokacia '$location' zapisana do extensionAttribute1 pre zariadenie '$deviceName'." -Level "SUCCESS" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-
-    # Cistenie starych logov
-    Write-IntuneLog -Message "Cistim stare logy (retention: 30 dni)..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    if (Get-Command Clear-OldLogs -ErrorAction SilentlyContinue) {
-        Clear-OldLogs -RetentionDays 30 -LogDirectory $LogDir
-    }
-    Write-IntuneLog -Message "Cistenie logov uspesne dokoncene." -Level "OK" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "========== INSTALACIA USPESNE DOKONCENA ==========" -Level "SUCCESS" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-
-    # Volitelne: Nastavenie detekcneho registry kluca pre Intune (ak chces registry detection rule)
-    New-Item -Path "HKLM:\SOFTWARE\TaurisIT\IPLocation" -Force | Out-Null
-    Set-ItemProperty -Path "HKLM:\SOFTWARE\TaurisIT\IPLocation" -Name "LastLocation" -Value $location -Type String
-
-    exit 0  # uspech - Intune oznaci ako Installed
+    Write-Log "========== INSTALACIA USPESNE DOKONCENA ==========" 'Information'
+    exit 0
 }
 catch {
-    $errorMessage = $_.Exception.Message
-    $errorStackTrace = $_.ScriptStackTrace
-    Write-IntuneLog -Message "========== CHYBA POCAS SPRACOVANIA ==========" -Level "ERROR" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Chyba: $errorMessage" -Level "ERROR" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Stack trace: $errorStackTrace" -Level "DEBUG" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    if (Get-Command Send-IntuneAlert -ErrorAction SilentlyContinue) {
-        Send-IntuneAlert -Message "Chyba v IP lokacia app: $errorMessage" -Severity Error -EventSource $EventSource -LogFile $LogFile
-    }
-    exit 1  # Chyba - Intune oznaci ako Failed
-}
-finally {
-    # Odpojenie Graph
-    Write-IntuneLog -Message "Odpajam sa od Microsoft Graph..." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
-    $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
-    Write-IntuneLog -Message "Skript ukonceny." -Level "INFO" -LogFile $LogFile -EventSource $EventSource -ErrorAction SilentlyContinue
+    Write-Log "CHYBA: $($_.Exception.Message)" 'Error'
+    Write-Log "Stack: $($_.ScriptStackTrace)" 'Error'
+    exit 1
 }
