@@ -1,1 +1,9 @@
 portainer-mcp
+
+# Citlive subory so secretmi
+*.env
+.env
+*/.env
+**/.env
+**/GraphAuth.xml
+GraphAuth.xml

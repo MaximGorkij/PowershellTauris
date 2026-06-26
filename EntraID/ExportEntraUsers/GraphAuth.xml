@@ -1,7 +1,0 @@
-<GraphAuth>
-    <TenantId>ebf9edb5-a5f7-4d70-9a59-501865f222ee</TenantId>
-    <ClientId>43b886e6-8f97-4c3c-9631-48fe83d893bd</ClientId>
-    <ClientSecret>su28Q~WvaKOYs-TY1IxjX9hj8VvpO6_7gUp-kdod</ClientSecret>
-    <SenderAddress>servisit@tauris.sk</SenderAddress>
-    <RecipientAddress>findrik@tauris.sk</RecipientAddress>
-</GraphAuth>
